@@ -1,0 +1,1941 @@
+import { useState, useMemo, useRef, useEffect } from "react";
+import {
+  LayoutDashboard, Users, TrendingUp, TrendingDown, BarChart2,
+  Bell, Sparkles, LogOut, Search, Plus, ArrowUpRight, ArrowDownRight,
+  Edit2, Trash2, X, Download, Wallet, Menu,
+  Megaphone, CreditCard, AlertCircle, Check,
+  User, ChevronRight, Activity, Target,
+  ArrowRight, Star, Lock, Shield, Settings,
+} from "lucide-react";
+import {
+  AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
+  XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
+} from "recharts";
+
+/* ─────────────────────────── TYPES ─────────────────────────── */
+type Role = "admin" | "member";
+type AppPage = "landing" | "login" | "app";
+type View =
+  | "login"
+  | "dashboard"
+  | "members"
+  | "income"
+  | "expenses"
+  | "reports"
+  | "announcements"
+  | "ai"
+  | "member-home";
+
+interface ProfileInfo {
+  name: string;
+  email: string;
+  phone: string;
+  organization: string;
+  role: Role;
+  initials: string;
+}
+
+interface Member {
+  id: string;
+  name: string;
+  email: string;
+  role: Role;
+  initials: string;
+  joined: string;
+  status: "active" | "inactive";
+  contributions: number;
+  outstanding: number;
+  phone: string;
+}
+
+interface Transaction {
+  id: string;
+  type: "income" | "expense";
+  category: string;
+  amount: number;
+  description: string;
+  date: string;
+  reference?: string;
+  status: "completed" | "pending";
+}
+
+interface Announcement {
+  id: string;
+  title: string;
+  body: string;
+  date: string;
+  priority: "high" | "medium" | "low";
+  author: string;
+}
+
+/* ─────────────────────────── SEED DATA ─────────────────────── */
+const SEED_MEMBERS: Member[] = [
+  { id: "1", name: "Amara Nwosu", email: "amara@fundflow.org", role: "member", initials: "AN", joined: "2023-01-15", status: "active", contributions: 124000, outstanding: 0, phone: "+880 1712 345678" },
+  { id: "2", name: "James Okonkwo", email: "james@fundflow.org", role: "member", initials: "JO", joined: "2023-02-10", status: "active", contributions: 98000, outstanding: 12000, phone: "+880 1811 456789" },
+  { id: "3", name: "Fatima Al-Hassan", email: "fatima@fundflow.org", role: "member", initials: "FA", joined: "2022-11-05", status: "active", contributions: 156000, outstanding: 0, phone: "+880 1911 567890" },
+  { id: "4", name: "David Chen", email: "david@fundflow.org", role: "member", initials: "DC", joined: "2023-03-20", status: "inactive", contributions: 32000, outstanding: 24000, phone: "+880 1611 678901" },
+  { id: "5", name: "Ngozi Adeyemi", email: "ngozi@fundflow.org", role: "member", initials: "NA", joined: "2023-01-01", status: "active", contributions: 110000, outstanding: 5000, phone: "+880 1511 789012" },
+  { id: "6", name: "Kwame Asante", email: "kwame@fundflow.org", role: "member", initials: "KA", joined: "2022-09-14", status: "active", contributions: 182000, outstanding: 0, phone: "+880 1411 890123" },
+  { id: "7", name: "Priya Sharma", email: "priya@fundflow.org", role: "member", initials: "PS", joined: "2023-04-08", status: "active", contributions: 74000, outstanding: 8000, phone: "+880 1311 901234" },
+  { id: "8", name: "Emmanuel Diallo", email: "emmanuel@fundflow.org", role: "member", initials: "ED", joined: "2023-05-22", status: "inactive", contributions: 18000, outstanding: 36000, phone: "+880 1211 012345" },
+];
+
+const SEED_TRANSACTIONS: Transaction[] = [
+  { id: "t1", type: "income", category: "Monthly Contribution", amount: 50000, description: "March member contributions", date: "2024-03-01", reference: "MC-2024-03", status: "completed" },
+  { id: "t2", type: "expense", category: "Operations", amount: 12000, description: "Office supplies and printing", date: "2024-03-03", reference: "EXP-001", status: "completed" },
+  { id: "t3", type: "income", category: "Donation", amount: 85000, description: "Corporate donation — TechCorp Ltd", date: "2024-03-05", reference: "DON-2024-01", status: "completed" },
+  { id: "t4", type: "expense", category: "Events", amount: 34000, description: "Annual general meeting venue hire", date: "2024-03-08", reference: "EXP-002", status: "completed" },
+  { id: "t5", type: "income", category: "Membership Fee", amount: 24000, description: "New member registration — Q1", date: "2024-03-10", reference: "MF-2024-01", status: "completed" },
+  { id: "t6", type: "expense", category: "Welfare", amount: 18000, description: "Medical assistance benefit", date: "2024-03-12", reference: "EXP-003", status: "completed" },
+  { id: "t7", type: "income", category: "Sponsorship", amount: 120000, description: "PrimeBank Q1 sponsorship", date: "2024-03-15", reference: "SP-2024-01", status: "completed" },
+  { id: "t8", type: "expense", category: "Admin", amount: 6500, description: "Internet and utility bills", date: "2024-03-18", reference: "EXP-004", status: "completed" },
+  { id: "t9", type: "income", category: "Monthly Contribution", amount: 52000, description: "April member contributions", date: "2024-04-01", reference: "MC-2024-04", status: "completed" },
+  { id: "t10", type: "expense", category: "Education", amount: 22000, description: "Member training workshop", date: "2024-04-05", reference: "EXP-005", status: "completed" },
+  { id: "t11", type: "income", category: "Donation", amount: 30000, description: "Anonymous donor contribution", date: "2024-04-09", reference: "DON-2024-02", status: "completed" },
+  { id: "t12", type: "expense", category: "Operations", amount: 9000, description: "Software subscriptions renewal", date: "2024-04-14", reference: "EXP-006", status: "pending" },
+];
+
+const MONTHLY_DATA = [
+  { month: "Oct", income: 184000, expenses: 72000 },
+  { month: "Nov", income: 210000, expenses: 89000 },
+  { month: "Dec", income: 195000, expenses: 124000 },
+  { month: "Jan", income: 228000, expenses: 93000 },
+  { month: "Feb", income: 241000, expenses: 108000 },
+  { month: "Mar", income: 331000, expenses: 80500 },
+  { month: "Apr", income: 282000, expenses: 113000 },
+];
+
+const EXPENSE_PIE = [
+  { name: "Operations", value: 21000, color: "#0B4832" },
+  { name: "Events", value: 34000, color: "#14C768" },
+  { name: "Welfare", value: 36000, color: "#F59E0B" },
+  { name: "Education", value: 22000, color: "#6366F1" },
+  { name: "Admin", value: 18500, color: "#EC4899" },
+];
+
+const SEED_ANNOUNCEMENTS: Announcement[] = [
+  { id: "a1", title: "Q2 Budget Review Meeting", body: "All members are invited to the quarterly budget review meeting on April 28th at 3:00 PM. Attendance is mandatory for all executive members. Agenda will be shared 48 hours prior.", date: "2024-04-18", priority: "high", author: "Admin Office" },
+  { id: "a2", title: "Outstanding Contributions Reminder", body: "Members with outstanding balances are reminded to clear payments before April 30th to avoid a 5% late fee. Contact the treasurer to arrange a payment plan if needed.", date: "2024-04-15", priority: "high", author: "Treasurer" },
+  { id: "a3", title: "Annual Fundraising Dinner — May 10th", body: "Our annual fundraising dinner will be held at the Dhaka Convention Center. Tickets are Tk 5,000 each. All proceeds fund the community welfare programme. RSVP by May 5th.", date: "2024-04-12", priority: "medium", author: "Events Committee" },
+  { id: "a4", title: "Welcome to March Cohort Members", body: "Please join us in welcoming 6 new members who joined in March 2024. New member orientation is scheduled for April 22nd at 10 AM. All members are encouraged to attend.", date: "2024-04-10", priority: "low", author: "Admin Office" },
+];
+
+/* ─────────────────────────── HELPERS ─────────────────────────── */
+const fmt = (n: number) => `Tk ${n.toLocaleString()}`;
+const fmtK = (n: number) => n >= 1000 ? `Tk ${(n / 1000).toFixed(0)}k` : `Tk ${n}`;
+const fmtDate = (d: string) =>
+  new Date(d).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+
+function cn(...classes: (string | false | undefined | null)[]): string {
+  return classes.filter(Boolean).join(" ");
+}
+
+/* ─────────────────────────── UI ATOMS ─────────────────────────── */
+function Badge({ label, variant }: { label: string; variant: "success" | "warning" | "danger" | "neutral" | "info" }) {
+  const styles = {
+    success: "bg-emerald-50 text-emerald-700 border border-emerald-200",
+    warning: "bg-amber-50 text-amber-700 border border-amber-200",
+    danger: "bg-red-50 text-red-700 border border-red-200",
+    neutral: "bg-gray-100 text-gray-600 border border-gray-200",
+    info: "bg-indigo-50 text-indigo-700 border border-indigo-200",
+  };
+  return (
+    <span className={cn("inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium font-mono", styles[variant])}>
+      {label}
+    </span>
+  );
+}
+
+function Avatar({ initials, size = "md", color = "#0B4832" }: { initials: string; size?: "sm" | "md" | "lg"; color?: string }) {
+  const sz = size === "sm" ? "w-7 h-7 text-xs" : size === "lg" ? "w-12 h-12 text-base" : "w-9 h-9 text-sm";
+  return (
+    <div className={cn("rounded-full flex items-center justify-center font-semibold text-white flex-shrink-0", sz)}
+      style={{ backgroundColor: color }}>
+      {initials}
+    </div>
+  );
+}
+
+function StatCard({ label, value, sub, icon: Icon, trend, color = "primary" }: {
+  label: string; value: string; sub?: string;
+  icon: React.ElementType; trend?: number; color?: string;
+}) {
+  const trendPositive = trend !== undefined && trend >= 0;
+  const iconColors: Record<string, string> = {
+    primary: "bg-emerald-900 text-emerald-400",
+    income: "bg-emerald-50 text-emerald-700",
+    expense: "bg-red-50 text-red-600",
+    members: "bg-indigo-50 text-indigo-600",
+    balance: "bg-amber-50 text-amber-700",
+  };
+  return (
+    <div className="bg-card rounded-2xl p-5 border border-border flex flex-col gap-3 hover:shadow-md transition-shadow">
+      <div className="flex items-start justify-between">
+        <div className={cn("w-10 h-10 rounded-xl flex items-center justify-center", iconColors[color] || iconColors.primary)}>
+          <Icon size={18} />
+        </div>
+        {trend !== undefined && (
+          <span className={cn("flex items-center gap-0.5 text-xs font-mono font-medium",
+            trendPositive ? "text-emerald-600" : "text-red-500")}>
+            {trendPositive ? <ArrowUpRight size={14} /> : <ArrowDownRight size={14} />}
+            {Math.abs(trend)}%
+          </span>
+        )}
+      </div>
+      <div>
+        <p className="text-2xl font-semibold font-mono text-foreground">{value}</p>
+        <p className="text-sm text-muted-foreground mt-0.5">{label}</p>
+        {sub && <p className="text-xs text-muted-foreground mt-1">{sub}</p>}
+      </div>
+    </div>
+  );
+}
+
+function Modal({ open, onClose, title, children }: {
+  open: boolean; onClose: () => void; title: string; children: React.ReactNode;
+}) {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative bg-card rounded-2xl shadow-2xl w-full max-w-md mx-4 p-6 border border-border animate-in">
+        <div className="flex items-center justify-between mb-5">
+          <h3 className="text-lg font-semibold text-foreground" style={{ fontFamily: "Fraunces, serif" }}>{title}</h3>
+          <button onClick={onClose} className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground transition-colors">
+            <X size={16} />
+          </button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function Input({ label, value, onChange, type = "text", placeholder }: {
+  label: string; value: string; onChange: (v: string) => void;
+  type?: string; placeholder?: string;
+}) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <label className="text-sm font-medium text-foreground">{label}</label>
+      <input
+        type={type}
+        value={value}
+        placeholder={placeholder}
+        onChange={e => onChange(e.target.value)}
+        className="px-3 py-2.5 rounded-lg border border-border bg-input-background text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent transition-all"
+      />
+    </div>
+  );
+}
+
+function Select({ label, value, onChange, options }: {
+  label: string; value: string; onChange: (v: string) => void;
+  options: { value: string; label: string }[];
+}) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <label className="text-sm font-medium text-foreground">{label}</label>
+      <select
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        className="px-3 py-2.5 rounded-lg border border-border bg-input-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring transition-all appearance-none"
+      >
+        {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+      </select>
+    </div>
+  );
+}
+
+function Btn({ children, onClick, variant = "primary", size = "md", className }: {
+  children: React.ReactNode; onClick?: () => void;
+  variant?: "primary" | "secondary" | "ghost" | "danger";
+  size?: "sm" | "md"; className?: string;
+}) {
+  const base = "inline-flex items-center gap-2 font-medium rounded-lg transition-all cursor-pointer border";
+  const variants = {
+    primary: "bg-primary text-primary-foreground border-primary hover:opacity-90",
+    secondary: "bg-secondary text-secondary-foreground border-secondary hover:bg-secondary/80",
+    ghost: "bg-transparent text-foreground border-border hover:bg-muted",
+    danger: "bg-red-50 text-red-700 border-red-200 hover:bg-red-100",
+  };
+  const sizes = { sm: "px-3 py-1.5 text-sm", md: "px-4 py-2.5 text-sm" };
+  return (
+    <button onClick={onClick} className={cn(base, variants[variant], sizes[size], className)}>
+      {children}
+    </button>
+  );
+}
+
+/* ─────────────────────────── LANDING PAGE ─────────────────────────── */
+function LandingPage({ onGetStarted }: { onGetStarted: () => void }) {
+  const features = [
+    { icon: LayoutDashboard, title: "Admin Dashboard", desc: "Complete financial overview with real-time stats, recent transactions, and quick-action controls in one place." },
+    { icon: Users, title: "Member Management", desc: "Add, edit, and track members with contribution status, outstanding balances, and activity history." },
+    { icon: TrendingUp, title: "Fund & Income Tracking", desc: "Record all income streams — contributions, donations, sponsorships, membership fees — automatically." },
+    { icon: TrendingDown, title: "Expense Management", desc: "Categorize and track every expense. Export reports and monitor spending patterns over time." },
+    { icon: BarChart2, title: "Reports & Analytics", desc: "Interactive charts and detailed reports for monthly income, expenses, and fund balance trends." },
+    { icon: Sparkles, title: "AI Financial Analysis", desc: "AI-powered insights including health scores, spending analysis, 30-day forecasts, and budget recommendations." },
+  ];
+
+  const steps = [
+    { num: "01", title: "Register your organization", desc: "Set up your account in minutes and invite your admin team to get started." },
+    { num: "02", title: "Add members & record finances", desc: "Import or add members, then start recording income and expenses immediately." },
+    { num: "03", title: "Gain insights & act", desc: "Review AI-generated reports and recommendations to make better financial decisions." },
+  ];
+
+  const testimonials = [
+    { name: "Dr. Farida Rahman", role: "Chairman, Dhaka Community Trust", text: "FundFlow transformed our financial management completely. We went from spreadsheet chaos to full clarity in one week." },
+    { name: "Nadia Hasan", role: "Treasurer, GreenVoice NGO", text: "The AI analysis feature alone saved us from a potential cash flow crisis. It predicted the shortfall 30 days before it happened." },
+    { name: "Tanjil Ahmed", role: "Secretary General, Dhaka University Students Society", text: "Our members now trust the organization more because they can see exactly where every taka goes." },
+  ];
+
+  return (
+    <div className="min-h-screen bg-background" style={{ fontFamily: "Outfit, sans-serif" }}>
+      {/* Floating Glass Navbar */}
+      <nav className="fixed top-4 left-1/2 -translate-x-1/2 z-50 w-11/12 max-w-6xl" style={{ backdropFilter: "blur(14px)" }}>
+        <div className="px-6 h-16 flex items-center justify-between rounded-2xl border border-emerald-400/20 bg-gradient-to-r from-slate-950/95 via-emerald-950/95 to-slate-900/95 shadow-[0_12px_40px_rgba(0,0,0,0.28)] hover:shadow-[0_16px_48px_rgba(0,0,0,0.35)] transition-all duration-300">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-lg bg-emerald-500 flex items-center justify-center">
+              <Wallet size={16} className="text-white" />
+            </div>
+            <span className="font-semibold text-white text-lg" style={{ fontFamily: "Fraunces, serif" }}>FundFlow</span>
+          </div>
+          <div className="hidden md:flex items-center gap-8 text-sm text-slate-200">
+            {["Features", "How It Works", "Testimonials"].map(l => (
+              <a key={l} href={`#${l.toLowerCase().replace(/ /g, "-")}`} className="hover:text-white transition-colors duration-200">{l}</a>
+            ))}
+          </div>
+          <button onClick={onGetStarted}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-500 text-white text-sm font-medium hover:bg-emerald-400 transition-colors">
+            Sign In <ArrowRight size={14} />
+          </button>
+        </div>
+      </nav>
+
+      {/* Hero */}
+      <section className="relative overflow-hidden pt-24">
+        <div className="absolute inset-0 pointer-events-none">
+          <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[900px] h-[500px] rounded-full bg-primary/5 blur-3xl" />
+        </div>
+        <div className="max-w-6xl mx-auto px-6 pt-24 pb-20 relative z-10">
+          <div className="max-w-3xl mx-auto text-center">
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-secondary border border-secondary-foreground/10 text-secondary-foreground text-xs font-medium mb-6">
+              <Sparkles size={12} className="text-accent" /> AI-Powered Fund Management Platform
+            </div>
+            <h1 className="text-5xl md:text-6xl font-semibold leading-tight text-foreground mb-6"
+              style={{ fontFamily: "Fraunces, serif" }}>
+              Manage your organization&apos;s funds with <em className="not-italic text-primary">clarity</em> and confidence
+            </h1>
+            <p className="text-lg text-muted-foreground leading-relaxed mb-10 max-w-2xl mx-auto">
+              FundFlow digitalizes financial management for NGOs, community groups, religious organizations, and student clubs — with real-time tracking, intelligent reports, and AI-powered insights.
+            </p>
+            <div className="flex flex-col sm:flex-row gap-3 justify-center">
+              <button onClick={onGetStarted}
+                className="flex items-center justify-center gap-2 px-7 py-3.5 rounded-xl bg-primary text-primary-foreground font-medium hover:opacity-90 transition-opacity text-base">
+                Get Started Free <ArrowRight size={16} />
+              </button>
+              <button onClick={onGetStarted}
+                className="flex items-center justify-center gap-2 px-7 py-3.5 rounded-xl border border-border bg-card text-foreground font-medium hover:bg-muted transition-colors text-base">
+                View Demo
+              </button>
+            </div>
+          </div>
+
+          {/* Hero stats */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-20 max-w-3xl mx-auto">
+            {[
+              { label: "Organizations", value: "500+" },
+              { label: "Funds Managed", value: "Tk 2.4B+" },
+              { label: "Active Members", value: "18,000+" },
+              { label: "Accuracy Rate", value: "99.8%" },
+            ].map(s => (
+              <div key={s.label} className="bg-card rounded-2xl p-5 border border-border text-center">
+                <p className="text-2xl font-semibold font-mono text-foreground">{s.value}</p>
+                <p className="text-xs text-muted-foreground mt-1">{s.label}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Features */}
+      <section id="features" className="py-24 bg-card border-t border-border">
+        <div className="max-w-6xl mx-auto px-6">
+          <div className="text-center mb-14">
+            <p className="text-accent text-sm font-medium mb-2">Everything you need</p>
+            <h2 className="text-4xl font-semibold text-foreground" style={{ fontFamily: "Fraunces, serif" }}>
+              Powerful features for every organization
+            </h2>
+            <p className="text-muted-foreground mt-3 max-w-xl mx-auto">
+              From a small student club to a national NGO — FundFlow scales to your needs with tools built for real-world financial management.
+            </p>
+          </div>
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
+            {features.map(({ icon: Icon, title, desc }) => (
+              <div key={title} className="p-6 rounded-2xl border border-border bg-background hover:shadow-md hover:border-primary/20 transition-all group">
+                <div className="w-11 h-11 rounded-xl bg-secondary flex items-center justify-center mb-4 group-hover:bg-primary/10 transition-colors">
+                  <Icon size={20} className="text-primary" />
+                </div>
+                <h3 className="font-semibold text-foreground mb-2" style={{ fontFamily: "Fraunces, serif" }}>{title}</h3>
+                <p className="text-sm text-muted-foreground leading-relaxed">{desc}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* How it works */}
+      <section id="how-it-works" className="py-24">
+        <div className="max-w-6xl mx-auto px-6">
+          <div className="text-center mb-14">
+            <p className="text-accent text-sm font-medium mb-2">Simple to set up</p>
+            <h2 className="text-4xl font-semibold text-foreground" style={{ fontFamily: "Fraunces, serif" }}>
+              Up and running in minutes
+            </h2>
+          </div>
+          <div className="grid md:grid-cols-3 gap-8">
+            {steps.map((s, i) => (
+              <div key={s.num} className="relative">
+                {i < steps.length - 1 && (
+                  <div className="hidden md:block absolute top-8 left-full w-full h-px bg-border -translate-y-px z-0" style={{ width: "calc(100% - 2rem)" }} />
+                )}
+                <div className="relative z-10">
+                  <div className="w-16 h-16 rounded-2xl bg-primary text-primary-foreground flex items-center justify-center text-xl font-semibold font-mono mb-5" style={{ fontFamily: "Fraunces, serif" }}>
+                    {s.num}
+                  </div>
+                  <h3 className="font-semibold text-foreground text-lg mb-2" style={{ fontFamily: "Fraunces, serif" }}>{s.title}</h3>
+                  <p className="text-sm text-muted-foreground leading-relaxed">{s.desc}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Security strip */}
+      <section className="py-12 bg-card border-y border-border">
+        <div className="max-w-6xl mx-auto px-6">
+          <div className="flex flex-wrap justify-center gap-8 items-center">
+            {[
+              { icon: Lock, label: "End-to-end encrypted" },
+              { icon: Shield, label: "Role-based access control" },
+              { icon: Activity, label: "Real-time audit logs" },
+              { icon: Check, label: "99.9% uptime guarantee" },
+            ].map(({ icon: Icon, label }) => (
+              <div key={label} className="flex items-center gap-2.5 text-sm text-muted-foreground">
+                <Icon size={16} className="text-primary" />
+                {label}
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Testimonials */}
+      <section id="testimonials" className="py-24">
+        <div className="max-w-6xl mx-auto px-6">
+          <div className="text-center mb-14">
+            <p className="text-accent text-sm font-medium mb-2">Trusted by leaders</p>
+            <h2 className="text-4xl font-semibold text-foreground" style={{ fontFamily: "Fraunces, serif" }}>
+              What our users say
+            </h2>
+          </div>
+          <div className="grid md:grid-cols-3 gap-5">
+            {testimonials.map(t => (
+              <div key={t.name} className="bg-card rounded-2xl p-6 border border-border flex flex-col gap-4">
+                <div className="flex gap-1">
+                  {[...Array(5)].map((_, i) => <Star key={i} size={14} className="fill-amber-400 text-amber-400" />)}
+                </div>
+                <p className="text-sm text-muted-foreground leading-relaxed flex-1">&ldquo;{t.text}&rdquo;</p>
+                <div className="border-t border-border pt-4">
+                  <p className="text-sm font-semibold text-foreground">{t.name}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">{t.role}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* CTA Banner */}
+      <section className="py-20 mx-6 mb-10 rounded-3xl overflow-hidden relative"
+        style={{ background: "linear-gradient(135deg, #09182A 0%, #0B4832 100%)" }}>
+        <div className="absolute inset-0 opacity-20" style={{ backgroundImage: "radial-gradient(circle at 70% 50%, #14C768 0%, transparent 55%)" }} />
+        <div className="relative z-10 text-center max-w-2xl mx-auto px-6">
+          <h2 className="text-4xl font-semibold text-white mb-4" style={{ fontFamily: "Fraunces, serif" }}>
+            Ready to bring clarity to your finances?
+          </h2>
+          <p className="text-white/60 mb-8 text-lg">Join hundreds of organizations already using FundFlow to manage funds with confidence.</p>
+          <button onClick={onGetStarted}
+            className="inline-flex items-center gap-2 px-8 py-4 rounded-xl bg-accent text-white font-medium text-base hover:opacity-90 transition-opacity">
+            Get Started Free <ArrowRight size={16} />
+          </button>
+        </div>
+      </section>
+
+      {/* Contact Section */}
+      <section id="contact" className="py-20 px-6 pb-10">
+        <div className="max-w-6xl mx-auto rounded-3xl border border-border bg-card p-8 md:p-10 shadow-sm">
+          <div className="grid md:grid-cols-[1.2fr_0.8fr] gap-8 items-center">
+            <div>
+              <p className="text-accent text-sm font-medium mb-2">Contact us</p>
+              <h2 className="text-3xl md:text-4xl font-semibold text-foreground" style={{ fontFamily: "Fraunces, serif" }}>
+                Let&apos;s talk about your funding goals
+              </h2>
+              <p className="text-muted-foreground mt-4 max-w-xl leading-relaxed">
+                Reach out for demos, onboarding support, or custom plans for your organization. We&apos;re here to help you simplify fund management.
+              </p>
+            </div>
+            <div className="rounded-2xl border border-border bg-background p-6 space-y-4">
+              <div>
+                <p className="text-sm font-medium text-foreground">Email</p>
+                <a href="mailto:hello@fundflow.org" className="text-sm text-primary hover:underline">hello@fundflow.org</a>
+              </div>
+              <div>
+                <p className="text-sm font-medium text-foreground">Phone</p>
+                <a href="tel:+2348000000000" className="text-sm text-primary hover:underline">+234 800 000 0000</a>
+              </div>
+              <div>
+                <p className="text-sm font-medium text-foreground">Office</p>
+                <p className="text-sm text-muted-foreground">Dhaka, Bangladesh</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Footer */}
+      <footer className="border-t border-border py-10 px-6">
+        <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div className="flex items-center gap-2">
+            <div className="w-7 h-7 rounded-lg bg-primary flex items-center justify-center">
+              <Wallet size={14} className="text-white" />
+            </div>
+            <span className="font-semibold text-foreground" style={{ fontFamily: "Fraunces, serif" }}>FundFlow</span>
+          </div>
+          <p className="text-sm text-muted-foreground">© 2024 FundFlow. Smart Fund Management for Every Organization.</p>
+          <div className="flex gap-5 text-sm text-muted-foreground">
+            <a href="#" className="hover:text-foreground transition-colors">Privacy</a>
+            <a href="#" className="hover:text-foreground transition-colors">Terms</a>
+            <a href="#" className="hover:text-foreground transition-colors">Contact</a>
+          </div>
+        </div>
+      </footer>
+    </div>
+  );
+}
+
+/* ─────────────────────────── LOGIN ─────────────────────────── */
+function LoginView({ onLogin, onBack }: { onLogin: (role: Role) => void; onBack?: () => void }) {
+  const [email, setEmail] = useState("admin@fundflow.org");
+  const [password, setPassword] = useState("password");
+  const [error, setError] = useState("");
+
+  const handleSubmit = () => {
+    if (!email || !password) { setError("Please fill in all fields."); return; }
+    if (email === "admin@fundflow.org") onLogin("admin");
+    else if (email === "member@fundflow.org") onLogin("member");
+    else { setError("Invalid credentials. Try admin@fundflow.org or member@fundflow.org"); }
+  };
+
+  return (
+    <div className="min-h-screen flex" style={{ fontFamily: "Outfit, sans-serif" }}>
+      {/* Left Panel */}
+      <div className="hidden lg:flex lg:w-[55%] flex-col justify-between p-14 relative overflow-hidden"
+        style={{ background: "linear-gradient(135deg, #09182A 0%, #0B2D1C 60%, #0B4832 100%)" }}>
+        <div className="relative z-10">
+          <div className="flex items-center gap-3 mb-16">
+            <div className="w-9 h-9 rounded-xl bg-accent flex items-center justify-center">
+              <Wallet size={18} className="text-white" />
+            </div>
+            <span className="text-white text-xl font-semibold" style={{ fontFamily: "Fraunces, serif" }}>FundFlow</span>
+          </div>
+          <h1 className="text-5xl font-semibold leading-tight text-white mb-6" style={{ fontFamily: "Fraunces, serif" }}>
+            Smart fund<br />management for<br /><em className="not-italic text-accent">every organization.</em>
+          </h1>
+          <p className="text-white/60 text-lg leading-relaxed max-w-sm">
+            Digitize your finances, track contributions, and gain AI-powered insights — all in one secure platform.
+          </p>
+        </div>
+        <div className="relative z-10 grid grid-cols-3 gap-4">
+          {[
+            { label: "Total Members", value: "247" },
+            { label: "Funds Managed", value: "Tk 4.2M" },
+            { label: "Accuracy Rate", value: "99.8%" },
+          ].map(s => (
+            <div key={s.label} className="rounded-xl p-4 border border-white/10 bg-white/5">
+              <p className="text-white text-xl font-semibold font-mono">{s.value}</p>
+              <p className="text-white/50 text-xs mt-1">{s.label}</p>
+            </div>
+          ))}
+        </div>
+        {/* decorative circles */}
+        <div className="absolute -top-24 -right-24 w-96 h-96 rounded-full bg-accent/10 blur-3xl" />
+        <div className="absolute bottom-32 -left-16 w-64 h-64 rounded-full bg-accent/5 blur-2xl" />
+      </div>
+
+      {/* Right Panel */}
+      <div className="flex-1 flex items-center justify-center bg-background px-8">
+        <div className="w-full max-w-sm">
+          <div className="flex items-center justify-between mb-10">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
+                <Wallet size={16} className="text-white" />
+              </div>
+              <span className="text-foreground font-semibold" style={{ fontFamily: "Fraunces, serif" }}>FundFlow</span>
+            </div>
+            {onBack && (
+              <button onClick={onBack} className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors">
+                <ArrowRight size={14} className="rotate-180" /> Back to home
+              </button>
+            )}
+          </div>
+          <h2 className="text-2xl font-semibold text-foreground mb-1" style={{ fontFamily: "Fraunces, serif" }}>Welcome back</h2>
+          <p className="text-muted-foreground text-sm mb-8">Sign in to your account to continue</p>
+
+          <div className="flex flex-col gap-4">
+            <Input label="Email address" value={email} onChange={setEmail} type="email" placeholder="you@fundflow.org" />
+            <Input label="Password" value={password} onChange={setPassword} type="password" placeholder="••••••••" />
+            {error && (
+              <div className="flex items-center gap-2 p-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm">
+                <AlertCircle size={14} /> {error}
+              </div>
+            )}
+            <Btn onClick={handleSubmit} className="w-full justify-center mt-1">Sign In</Btn>
+          </div>
+
+          <div className="mt-8 p-4 rounded-xl bg-muted border border-border text-xs text-muted-foreground">
+            <p className="font-medium text-foreground mb-2">Demo credentials</p>
+            <p>Admin: <span className="font-mono text-foreground">admin@fundflow.org</span></p>
+            <p>Member: <span className="font-mono text-foreground">member@fundflow.org</span></p>
+            <p className="mt-1">Password: <span className="font-mono text-foreground">password</span></p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ─────────────────────────── SIDEBAR ─────────────────────────── */
+const ADMIN_NAV = [
+  { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { id: "members", label: "Members", icon: Users },
+  { id: "income", label: "Fund Income", icon: TrendingUp },
+  { id: "expenses", label: "Expenses", icon: TrendingDown },
+  { id: "reports", label: "Reports", icon: BarChart2 },
+  { id: "announcements", label: "Announcements", icon: Megaphone },
+  { id: "ai", label: "AI Analysis", icon: Sparkles },
+];
+
+const MEMBER_NAV = [
+  { id: "member-home", label: "My Dashboard", icon: LayoutDashboard },
+  { id: "announcements", label: "Announcements", icon: Megaphone },
+  { id: "ai", label: "AI Insights", icon: Sparkles },
+];
+
+function Sidebar({ view, onView, role, onLogout, sidebarOpen, onClose }: {
+  view: View; onView: (v: View) => void; role: Role;
+  onLogout: () => void; sidebarOpen: boolean; onClose: () => void;
+}) {
+  const nav = role === "admin" ? ADMIN_NAV : MEMBER_NAV;
+  return (
+    <>
+      {sidebarOpen && <div className="fixed inset-0 z-30 bg-black/50 backdrop-blur-sm lg:hidden" onClick={onClose} />}
+      <aside className={cn(
+        "fixed inset-y-0 left-0 z-40 flex flex-col w-60 transition-transform duration-300",
+        "lg:translate-x-0 lg:static lg:z-auto",
+        sidebarOpen ? "translate-x-0" : "-translate-x-full"
+      )} style={{ background: "linear-gradient(135deg, rgba(9, 24, 42, 0.95), rgba(11, 72, 50, 0.85))", backdropFilter: "blur(10px)", fontFamily: "Outfit, sans-serif", borderRight: "1px solid rgba(255, 255, 255, 0.08)" }}>
+        {/* Logo */}
+        <div className="flex items-center gap-3 px-6 py-6 border-b border-white/8">
+          <div className="w-8 h-8 rounded-lg bg-accent flex items-center justify-center flex-shrink-0">
+            <Wallet size={16} className="text-white" />
+          </div>
+          <span className="text-white font-semibold text-lg" style={{ fontFamily: "Fraunces, serif" }}>FundFlow</span>
+        </div>
+
+        {/* Role badge */}
+        <div className="px-6 pt-5 pb-3">
+          <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-white/8 text-white/50 uppercase tracking-wider">
+            {role === "admin" ? "Admin Portal" : "Member Portal"}
+          </span>
+        </div>
+
+        {/* Nav */}
+        <nav className="flex-1 px-3 py-2 flex flex-col gap-0.5 overflow-y-auto">
+          {nav.map(({ id, label, icon: Icon }) => {
+            const active = view === id;
+            return (
+              <button
+                key={id}
+                onClick={() => { onView(id as View); onClose(); }}
+                className={cn(
+                  "flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm w-full text-left transition-all",
+                  active
+                    ? "bg-accent/20 text-accent font-medium"
+                    : "text-white/60 hover:text-white/90 hover:bg-white/8"
+                )}
+              >
+                <Icon size={17} />
+                {label}
+                {active && <ChevronRight size={14} className="ml-auto opacity-60" />}
+              </button>
+            );
+          })}
+        </nav>
+
+        {/* User */}
+        <div className="px-3 pb-5 pt-3 border-t border-white/8">
+          <button
+            onClick={onLogout}
+            className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm w-full text-white/50 hover:text-white/80 hover:bg-white/8 transition-all"
+          >
+            <LogOut size={16} />
+            Sign Out
+          </button>
+        </div>
+      </aside>
+    </>
+  );
+}
+
+/* ─────────────────────────── HEADER ─────────────────────────── */
+function Header({ title, subtitle, onMenuClick, profile, onEditProfile, onLogout }: {
+  title: string; subtitle?: string; onMenuClick: () => void;
+  profile: ProfileInfo; onEditProfile: () => void; onLogout: () => void;
+}) {
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const profileRef = useRef<HTMLDivElement>(null);
+  const notifRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (profileRef.current && !profileRef.current.contains(e.target as Node)) setProfileOpen(false);
+      if (notifRef.current && !notifRef.current.contains(e.target as Node)) setNotificationsOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  return (
+    <header className="fixed top-4 left-1/2 -translate-x-1/2 right-auto z-40 w-11/12 max-w-6xl rounded-2xl px-6 py-4 border border-emerald-400/25 shadow-[0_12px_40px_rgba(0,0,0,0.28)] hover:shadow-[0_16px_48px_rgba(0,0,0,0.35)] transition-all duration-300" style={{ background: "linear-gradient(135deg, rgba(2, 6, 23, 0.96), rgba(5, 150, 105, 0.95))", backdropFilter: "blur(14px)" }}>
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex items-center gap-3 flex-1 min-w-0">
+          <button onClick={onMenuClick} className="lg:hidden w-9 h-9 rounded-lg flex items-center justify-center text-white/90 hover:bg-white/15 transition-colors">
+            <Menu size={18} />
+          </button>
+          <div className="min-w-0">
+            <h1 className="text-lg font-semibold text-white truncate" style={{ fontFamily: "Fraunces, serif" }}>{title}</h1>
+            {subtitle && <p className="text-xs text-emerald-100/90 truncate">{subtitle}</p>}
+          </div>
+        </div>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {/* Notification dropdown */}
+          <div className="relative" ref={notifRef}>
+            <button 
+              onClick={() => setNotificationsOpen(v => !v)}
+              className="w-9 h-9 rounded-lg flex items-center justify-center text-white/90 hover:bg-white/15 transition-colors relative">
+              <Bell size={17} />
+              <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-emerald-300" />
+            </button>
+            {notificationsOpen && (
+              <div className="absolute right-0 top-full mt-2 w-72 rounded-2xl border border-white/10 shadow-xl shadow-black/20 z-50 overflow-hidden" style={{ background: "rgba(2, 6, 23, 0.97)", backdropFilter: "blur(10px)" }}>
+                <div className="px-4 py-3 border-b border-white/10">
+                  <p className="text-sm font-semibold text-white">Notifications</p>
+                </div>
+                <div className="max-h-64 overflow-y-auto">
+                  <div className="p-3 flex flex-col gap-2">
+                    {[
+                      { title: "New member joined", time: "5 min ago", icon: Users },
+                      { title: "Monthly report ready", time: "1 hour ago", icon: BarChart2 },
+                      { title: "Expense approved", time: "3 hours ago", icon: Check },
+                    ].map((notif, i) => {
+                      const Icon = notif.icon;
+                      return (
+                        <div key={i} className="p-2.5 rounded-lg hover:bg-white/10 transition-colors cursor-pointer border border-white/10 hover:border-emerald-400/20">
+                          <div className="flex items-start gap-2">
+                            <div className="w-8 h-8 rounded-lg bg-emerald-500/20 flex items-center justify-center flex-shrink-0 mt-0.5">
+                              <Icon size={14} className="text-emerald-300" />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="text-sm text-white font-medium">{notif.title}</p>
+                              <p className="text-xs text-slate-300 mt-0.5">{notif.time}</p>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Profile dropdown */}
+          <div className="relative" ref={profileRef}>
+            <button
+              onClick={() => setProfileOpen(v => !v)}
+              className="flex items-center gap-2 pl-1 pr-2 py-1 rounded-xl hover:bg-white/15 transition-colors"
+            >
+              <Avatar initials={profile.initials} size="sm" />
+              <span className="hidden sm:block text-sm font-medium text-white max-w-[120px] truncate">{profile.name.split(" ")[0]}</span>
+            </button>
+
+            {profileOpen && (
+              <div className="absolute right-0 top-full mt-2 w-72 rounded-2xl border border-white/10 shadow-xl shadow-black/20 z-50 overflow-hidden" style={{ background: "rgba(2, 6, 23, 0.97)", backdropFilter: "blur(10px)" }}>
+                {/* User info */}
+                <div className="px-4 py-4 border-b border-white/10 flex items-center gap-3">
+                  <Avatar initials={profile.initials} size="md" />
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-white truncate">{profile.name}</p>
+                    <p className="text-xs text-slate-300 truncate">{profile.email}</p>
+                    <Badge label={profile.role} variant={profile.role === "admin" ? "info" : "success"} />
+                  </div>
+                </div>
+                {/* Menu items */}
+                <div className="p-2">
+                  <button
+                    onClick={() => { setProfileOpen(false); onEditProfile(); }}
+                    className="flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-sm text-slate-100 hover:bg-white/10 transition-colors"
+                  >
+                    <div className="w-6 h-6 rounded-lg bg-emerald-500/20 flex items-center justify-center flex-shrink-0">
+                      <Edit2 size={13} className="text-emerald-300" />
+                    </div>
+                    <span>Edit Profile</span>
+                  </button>
+                  <button
+                    className="flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-sm text-slate-100 hover:bg-white/10 transition-colors"
+                    onClick={() => setProfileOpen(false)}
+                  >
+                    <div className="w-6 h-6 rounded-lg bg-emerald-500/20 flex items-center justify-center flex-shrink-0">
+                      <Settings size={13} className="text-emerald-300" />
+                    </div>
+                    <span>Settings</span>
+                  </button>
+                  <div className="h-px bg-white/10 my-2" />
+                  <button
+                    onClick={() => { setProfileOpen(false); onLogout(); }}
+                    className="flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-sm text-red-300 hover:bg-red-500/10 transition-colors"
+                  >
+                    <div className="w-6 h-6 rounded-lg bg-red-500/10 flex items-center justify-center flex-shrink-0">
+                      <LogOut size={13} className="text-red-300" />
+                    </div>
+                    <span>Sign Out</span>
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </header>
+  );
+}
+
+/* ─────────────────────────── DASHBOARD ─────────────────────────── */
+function DashboardView() {
+  const totalIncome = SEED_TRANSACTIONS.filter(t => t.type === "income").reduce((s, t) => s + t.amount, 0);
+  const totalExpenses = SEED_TRANSACTIONS.filter(t => t.type === "expense").reduce((s, t) => s + t.amount, 0);
+  const balance = 1248500 + totalIncome - totalExpenses;
+  const activeMembers = SEED_MEMBERS.filter(m => m.status === "active").length;
+  const recent = SEED_TRANSACTIONS.slice(0, 6);
+
+  return (
+    <div className="p-6 flex flex-col gap-6" style={{ fontFamily: "Outfit, sans-serif" }}>
+      {/* Stats */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <StatCard label="Total Fund Balance" value={fmt(balance)} sub="As of today" icon={Wallet} trend={8.9} color="balance" />
+        <StatCard label="Total Income" value={fmt(totalIncome)} sub="This period" icon={TrendingUp} trend={12.4} color="income" />
+        <StatCard label="Total Expenses" value={fmt(totalExpenses)} sub="This period" icon={TrendingDown} trend={-3.2} color="expense" />
+        <StatCard label="Active Members" value={String(activeMembers)} sub={`of ${SEED_MEMBERS.length} total`} icon={Users} trend={6} color="members" />
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Chart */}
+        <div className="lg:col-span-2 bg-card rounded-2xl p-5 border border-border">
+          <div className="flex items-center justify-between mb-5">
+            <div>
+              <h3 className="font-semibold text-foreground" style={{ fontFamily: "Fraunces, serif" }}>Income vs Expenses</h3>
+              <p className="text-xs text-muted-foreground">Last 7 months overview</p>
+            </div>
+            <Badge label="2024" variant="neutral" />
+          </div>
+          <ResponsiveContainer width="100%" height={220}>
+            <BarChart data={MONTHLY_DATA} barGap={4}>
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.06)" vertical={false} />
+              <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#6B6560", fontFamily: "DM Mono" }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fontSize: 11, fill: "#6B6560", fontFamily: "DM Mono" }} axisLine={false} tickLine={false} tickFormatter={v => `৳${(v / 1000).toFixed(0)}k`} />
+              <Tooltip formatter={(v: number) => fmt(v)} contentStyle={{ borderRadius: 10, border: "1px solid rgba(0,0,0,0.08)", fontFamily: "DM Mono", fontSize: 12 }} />
+              <Legend wrapperStyle={{ fontSize: 12, fontFamily: "Outfit" }} />
+              <Bar dataKey="income" name="Income" fill="#14C768" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="expenses" name="Expenses" fill="#0B4832" radius={[4, 4, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+
+        {/* Expense Breakdown */}
+        <div className="bg-card rounded-2xl p-5 border border-border">
+          <h3 className="font-semibold text-foreground mb-1" style={{ fontFamily: "Fraunces, serif" }}>Expense Categories</h3>
+          <p className="text-xs text-muted-foreground mb-4">Current period breakdown</p>
+          <ResponsiveContainer width="100%" height={160}>
+            <PieChart>
+              <Pie data={EXPENSE_PIE} cx="50%" cy="50%" innerRadius={45} outerRadius={75} paddingAngle={3} dataKey="value">
+                {EXPENSE_PIE.map((entry, i) => <Cell key={i} fill={entry.color} />)}
+              </Pie>
+              <Tooltip formatter={(v: number) => fmt(v)} contentStyle={{ borderRadius: 10, fontSize: 12, fontFamily: "DM Mono" }} />
+            </PieChart>
+          </ResponsiveContainer>
+          <div className="flex flex-col gap-2 mt-2">
+            {EXPENSE_PIE.map(item => (
+              <div key={item.name} className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: item.color }} />
+                  <span className="text-xs text-muted-foreground">{item.name}</span>
+                </div>
+                <span className="text-xs font-mono font-medium text-foreground">{fmt(item.value)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Recent Transactions */}
+      <div className="bg-card rounded-2xl border border-border overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+          <h3 className="font-semibold text-foreground" style={{ fontFamily: "Fraunces, serif" }}>Recent Transactions</h3>
+          <Badge label={`${recent.length} shown`} variant="neutral" />
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-muted/50">
+                {["Description", "Category", "Date", "Amount", "Status"].map(h => (
+                  <th key={h} className="text-left px-5 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wide">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {recent.map((tx, i) => (
+                <tr key={tx.id} className={cn("border-t border-border/50 hover:bg-muted/30 transition-colors", i % 2 === 0 ? "" : "bg-muted/10")}>
+                  <td className="px-5 py-3.5">
+                    <div className="flex items-center gap-3">
+                      <div className={cn("w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0",
+                        tx.type === "income" ? "bg-emerald-50 text-emerald-600" : "bg-red-50 text-red-500")}>
+                        {tx.type === "income" ? <ArrowUpRight size={14} /> : <ArrowDownRight size={14} />}
+                      </div>
+                      <span className="text-foreground font-medium">{tx.description}</span>
+                    </div>
+                  </td>
+                  <td className="px-5 py-3.5 text-muted-foreground">{tx.category}</td>
+                  <td className="px-5 py-3.5 font-mono text-xs text-muted-foreground">{fmtDate(tx.date)}</td>
+                  <td className={cn("px-5 py-3.5 font-mono font-semibold",
+                    tx.type === "income" ? "text-emerald-700" : "text-red-600")}>
+                    {tx.type === "income" ? "+" : "-"}{fmt(tx.amount)}
+                  </td>
+                  <td className="px-5 py-3.5">
+                    <Badge label={tx.status} variant={tx.status === "completed" ? "success" : "warning"} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ─────────────────────────── MEMBERS ─────────────────────────── */
+function MembersView() {
+  const [members, setMembers] = useState<Member[]>(SEED_MEMBERS);
+  const [search, setSearch] = useState("");
+  const [modal, setModal] = useState<"add" | "edit" | null>(null);
+  const [editTarget, setEditTarget] = useState<Member | null>(null);
+  const [form, setForm] = useState({ name: "", email: "", phone: "", status: "active" });
+
+  const filtered = useMemo(() =>
+    members.filter(m =>
+      m.name.toLowerCase().includes(search.toLowerCase()) ||
+      m.email.toLowerCase().includes(search.toLowerCase())
+    ), [members, search]);
+
+  const openAdd = () => { setForm({ name: "", email: "", phone: "", status: "active" }); setModal("add"); };
+  const openEdit = (m: Member) => { setEditTarget(m); setForm({ name: m.name, email: m.email, phone: m.phone, status: m.status }); setModal("edit"); };
+  const handleSave = () => {
+    if (modal === "add") {
+      setMembers(prev => [...prev, {
+        id: String(Date.now()), name: form.name, email: form.email, phone: form.phone,
+        role: "member", initials: form.name.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase(),
+        joined: new Date().toISOString().slice(0, 10),
+        status: form.status as "active" | "inactive",
+        contributions: 0, outstanding: 0
+      }]);
+    } else if (modal === "edit" && editTarget) {
+      setMembers(prev => prev.map(m => m.id === editTarget.id
+        ? { ...m, name: form.name, email: form.email, phone: form.phone, status: form.status as "active" | "inactive" }
+        : m));
+    }
+    setModal(null);
+  };
+  const handleDelete = (id: string) => setMembers(prev => prev.filter(m => m.id !== id));
+
+  return (
+    <div className="p-6 flex flex-col gap-5" style={{ fontFamily: "Outfit, sans-serif" }}>
+      <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
+        <div className="relative flex-1 max-w-sm">
+          <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <input
+            value={search} onChange={e => setSearch(e.target.value)}
+            placeholder="Search members..."
+            className="w-full pl-9 pr-3 py-2.5 rounded-lg border border-border bg-card text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+          />
+        </div>
+        <Btn onClick={openAdd}><Plus size={15} /> Add Member</Btn>
+      </div>
+
+      <div className="grid grid-cols-3 gap-4">
+        <div className="bg-card rounded-2xl p-4 border border-border text-center">
+          <p className="text-2xl font-semibold font-mono">{members.filter(m => m.status === "active").length}</p>
+          <p className="text-xs text-muted-foreground mt-1">Active</p>
+        </div>
+        <div className="bg-card rounded-2xl p-4 border border-border text-center">
+          <p className="text-2xl font-semibold font-mono">{members.filter(m => m.status === "inactive").length}</p>
+          <p className="text-xs text-muted-foreground mt-1">Inactive</p>
+        </div>
+        <div className="bg-card rounded-2xl p-4 border border-border text-center">
+          <p className="text-2xl font-semibold font-mono text-amber-700">
+            {members.filter(m => m.outstanding > 0).length}
+          </p>
+          <p className="text-xs text-muted-foreground mt-1">Outstanding</p>
+        </div>
+      </div>
+
+      <div className="bg-card rounded-2xl border border-border overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-muted/50 border-b border-border">
+                {["Member", "Contact", "Joined", "Contributions", "Outstanding", "Status", ""].map(h => (
+                  <th key={h} className="text-left px-5 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wide whitespace-nowrap">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((m, i) => (
+                <tr key={m.id} className={cn("border-t border-border/50 hover:bg-muted/20 transition-colors", i % 2 !== 0 && "bg-muted/10")}>
+                  <td className="px-5 py-3.5">
+                    <div className="flex items-center gap-3">
+                      <Avatar initials={m.initials} size="sm" color={m.status === "active" ? "#0B4832" : "#9CA3AF"} />
+                      <span className="font-medium text-foreground">{m.name}</span>
+                    </div>
+                  </td>
+                  <td className="px-5 py-3.5 text-muted-foreground text-xs">
+                    <div>{m.email}</div>
+                    <div>{m.phone}</div>
+                  </td>
+                  <td className="px-5 py-3.5 font-mono text-xs text-muted-foreground">{fmtDate(m.joined)}</td>
+                  <td className="px-5 py-3.5 font-mono font-semibold text-emerald-700">{fmt(m.contributions)}</td>
+                  <td className="px-5 py-3.5 font-mono font-semibold">
+                    <span className={m.outstanding > 0 ? "text-amber-700" : "text-muted-foreground"}>
+                      {m.outstanding > 0 ? fmt(m.outstanding) : "—"}
+                    </span>
+                  </td>
+                  <td className="px-5 py-3.5">
+                    <Badge label={m.status} variant={m.status === "active" ? "success" : "neutral"} />
+                  </td>
+                  <td className="px-5 py-3.5">
+                    <div className="flex items-center gap-1">
+                      <button onClick={() => openEdit(m)} className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground transition-colors">
+                        <Edit2 size={14} />
+                      </button>
+                      <button onClick={() => handleDelete(m.id)} className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:bg-red-50 hover:text-red-600 transition-colors">
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <Modal open={modal !== null} onClose={() => setModal(null)} title={modal === "add" ? "Add New Member" : "Edit Member"}>
+        <div className="flex flex-col gap-4">
+          <Input label="Full Name" value={form.name} onChange={v => setForm(f => ({ ...f, name: v }))} placeholder="e.g. Amara Nwosu" />
+          <Input label="Email Address" value={form.email} onChange={v => setForm(f => ({ ...f, email: v }))} type="email" placeholder="member@example.com" />
+          <Input label="Phone Number" value={form.phone} onChange={v => setForm(f => ({ ...f, phone: v }))} placeholder="+234 800 000 0000" />
+          <Select label="Status" value={form.status} onChange={v => setForm(f => ({ ...f, status: v }))}
+            options={[{ value: "active", label: "Active" }, { value: "inactive", label: "Inactive" }]} />
+          <div className="flex gap-3 mt-2">
+            <Btn onClick={() => setModal(null)} variant="ghost" className="flex-1 justify-center">Cancel</Btn>
+            <Btn onClick={handleSave} className="flex-1 justify-center"><Check size={14} /> Save</Btn>
+          </div>
+        </div>
+      </Modal>
+    </div>
+  );
+}
+
+/* ─────────────────────────── INCOME ─────────────────────────── */
+const INCOME_CATS = ["Monthly Contribution", "Donation", "Membership Fee", "Sponsorship", "Other"];
+
+function IncomeView() {
+  const [txs, setTxs] = useState(SEED_TRANSACTIONS.filter(t => t.type === "income"));
+  const [modal, setModal] = useState(false);
+  const [form, setForm] = useState({ description: "", amount: "", category: "Monthly Contribution", date: "" });
+
+  const total = txs.reduce((s, t) => s + t.amount, 0);
+
+  const handleAdd = () => {
+    if (!form.description || !form.amount || !form.date) return;
+    setTxs(prev => [{
+      id: String(Date.now()), type: "income", category: form.category,
+      amount: Number(form.amount), description: form.description,
+      date: form.date, reference: `INC-${Date.now()}`, status: "completed"
+    }, ...prev]);
+    setModal(false);
+    setForm({ description: "", amount: "", category: "Monthly Contribution", date: "" });
+  };
+
+  return (
+    <div className="p-6 flex flex-col gap-5" style={{ fontFamily: "Outfit, sans-serif" }}>
+      <div className="flex items-center justify-between">
+        <div className="bg-card rounded-2xl p-4 border border-border">
+          <p className="text-xs text-muted-foreground">Total Income Recorded</p>
+          <p className="text-2xl font-semibold font-mono text-emerald-700 mt-1">{fmt(total)}</p>
+        </div>
+        <Btn onClick={() => setModal(true)}><Plus size={15} /> Record Income</Btn>
+      </div>
+
+      <div className="bg-card rounded-2xl border border-border overflow-hidden">
+        <div className="px-5 py-4 border-b border-border flex items-center justify-between">
+          <h3 className="font-semibold" style={{ fontFamily: "Fraunces, serif" }}>Income Records</h3>
+          <button className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors">
+            <Download size={14} /> Export
+          </button>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-muted/50 border-b border-border">
+                {["Description", "Category", "Reference", "Date", "Amount", "Status"].map(h => (
+                  <th key={h} className="text-left px-5 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wide">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {txs.map((tx, i) => (
+                <tr key={tx.id} className={cn("border-t border-border/50 hover:bg-muted/20 transition-colors", i % 2 !== 0 && "bg-muted/10")}>
+                  <td className="px-5 py-3.5 font-medium text-foreground">{tx.description}</td>
+                  <td className="px-5 py-3.5 text-muted-foreground">{tx.category}</td>
+                  <td className="px-5 py-3.5 font-mono text-xs text-muted-foreground">{tx.reference || "—"}</td>
+                  <td className="px-5 py-3.5 font-mono text-xs text-muted-foreground">{fmtDate(tx.date)}</td>
+                  <td className="px-5 py-3.5 font-mono font-semibold text-emerald-700">+{fmt(tx.amount)}</td>
+                  <td className="px-5 py-3.5"><Badge label={tx.status} variant={tx.status === "completed" ? "success" : "warning"} /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <Modal open={modal} onClose={() => setModal(false)} title="Record Income">
+        <div className="flex flex-col gap-4">
+          <Input label="Description" value={form.description} onChange={v => setForm(f => ({ ...f, description: v }))} placeholder="e.g. March member contributions" />
+          <Input label="Amount (Tk)" value={form.amount} onChange={v => setForm(f => ({ ...f, amount: v }))} type="number" placeholder="0.00" />
+          <Select label="Category" value={form.category} onChange={v => setForm(f => ({ ...f, category: v }))}
+            options={INCOME_CATS.map(c => ({ value: c, label: c }))} />
+          <Input label="Date" value={form.date} onChange={v => setForm(f => ({ ...f, date: v }))} type="date" />
+          <div className="flex gap-3 mt-2">
+            <Btn onClick={() => setModal(false)} variant="ghost" className="flex-1 justify-center">Cancel</Btn>
+            <Btn onClick={handleAdd} className="flex-1 justify-center"><Check size={14} /> Save</Btn>
+          </div>
+        </div>
+      </Modal>
+    </div>
+  );
+}
+
+/* ─────────────────────────── EXPENSES ─────────────────────────── */
+const EXPENSE_CATS = ["Operations", "Events", "Welfare", "Education", "Admin", "Other"];
+
+function ExpensesView() {
+  const [txs, setTxs] = useState(SEED_TRANSACTIONS.filter(t => t.type === "expense"));
+  const [modal, setModal] = useState(false);
+  const [form, setForm] = useState({ description: "", amount: "", category: "Operations", date: "" });
+
+  const total = txs.reduce((s, t) => s + t.amount, 0);
+
+  const handleAdd = () => {
+    if (!form.description || !form.amount || !form.date) return;
+    setTxs(prev => [{
+      id: String(Date.now()), type: "expense", category: form.category,
+      amount: Number(form.amount), description: form.description,
+      date: form.date, reference: `EXP-${Date.now()}`, status: "completed"
+    }, ...prev]);
+    setModal(false);
+    setForm({ description: "", amount: "", category: "Operations", date: "" });
+  };
+
+  const handleDelete = (id: string) => setTxs(prev => prev.filter(t => t.id !== id));
+
+  return (
+    <div className="p-6 flex flex-col gap-5" style={{ fontFamily: "Outfit, sans-serif" }}>
+      <div className="flex items-center justify-between">
+        <div className="bg-card rounded-2xl p-4 border border-border">
+          <p className="text-xs text-muted-foreground">Total Expenses Recorded</p>
+          <p className="text-2xl font-semibold font-mono text-red-600 mt-1">{fmt(total)}</p>
+        </div>
+        <Btn onClick={() => setModal(true)}><Plus size={15} /> Record Expense</Btn>
+      </div>
+
+      <div className="bg-card rounded-2xl border border-border overflow-hidden">
+        <div className="px-5 py-4 border-b border-border flex items-center justify-between">
+          <h3 className="font-semibold" style={{ fontFamily: "Fraunces, serif" }}>Expense Records</h3>
+          <button className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors">
+            <Download size={14} /> Export
+          </button>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-muted/50 border-b border-border">
+                {["Description", "Category", "Reference", "Date", "Amount", "Status", ""].map(h => (
+                  <th key={h} className="text-left px-5 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wide">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {txs.map((tx, i) => (
+                <tr key={tx.id} className={cn("border-t border-border/50 hover:bg-muted/20 transition-colors", i % 2 !== 0 && "bg-muted/10")}>
+                  <td className="px-5 py-3.5 font-medium text-foreground">{tx.description}</td>
+                  <td className="px-5 py-3.5 text-muted-foreground">{tx.category}</td>
+                  <td className="px-5 py-3.5 font-mono text-xs text-muted-foreground">{tx.reference || "—"}</td>
+                  <td className="px-5 py-3.5 font-mono text-xs text-muted-foreground">{fmtDate(tx.date)}</td>
+                  <td className="px-5 py-3.5 font-mono font-semibold text-red-600">-{fmt(tx.amount)}</td>
+                  <td className="px-5 py-3.5"><Badge label={tx.status} variant={tx.status === "completed" ? "success" : "warning"} /></td>
+                  <td className="px-5 py-3.5">
+                    <button onClick={() => handleDelete(tx.id)} className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:bg-red-50 hover:text-red-600 transition-colors">
+                      <Trash2 size={14} />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <Modal open={modal} onClose={() => setModal(false)} title="Record Expense">
+        <div className="flex flex-col gap-4">
+          <Input label="Description" value={form.description} onChange={v => setForm(f => ({ ...f, description: v }))} placeholder="e.g. Office supplies" />
+          <Input label="Amount (Tk)" value={form.amount} onChange={v => setForm(f => ({ ...f, amount: v }))} type="number" placeholder="0.00" />
+          <Select label="Category" value={form.category} onChange={v => setForm(f => ({ ...f, category: v }))}
+            options={EXPENSE_CATS.map(c => ({ value: c, label: c }))} />
+          <Input label="Date" value={form.date} onChange={v => setForm(f => ({ ...f, date: v }))} type="date" />
+          <div className="flex gap-3 mt-2">
+            <Btn onClick={() => setModal(false)} variant="ghost" className="flex-1 justify-center">Cancel</Btn>
+            <Btn onClick={handleAdd} className="flex-1 justify-center"><Check size={14} /> Save</Btn>
+          </div>
+        </div>
+      </Modal>
+    </div>
+  );
+}
+
+/* ─────────────────────────── REPORTS ─────────────────────────── */
+function ReportsView() {
+  const [tab, setTab] = useState<"overview" | "income" | "expenses">("overview");
+
+  return (
+    <div className="p-6 flex flex-col gap-5" style={{ fontFamily: "Outfit, sans-serif" }}>
+      <div className="flex items-center gap-1 p-1 bg-muted rounded-xl w-fit">
+        {(["overview", "income", "expenses"] as const).map(t => (
+          <button key={t} onClick={() => setTab(t)}
+            className={cn("px-4 py-1.5 rounded-lg text-sm font-medium capitalize transition-all",
+              tab === t ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground")}>
+            {t}
+          </button>
+        ))}
+      </div>
+
+      {tab === "overview" && (
+        <>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            {[
+              { label: "Net Balance", value: fmt(1874500), color: "text-foreground" },
+              { label: "Total Income (YTD)", value: fmt(1671000), color: "text-emerald-700" },
+              { label: "Total Expenses (YTD)", value: fmt(579500), color: "text-red-600" },
+              { label: "Savings Rate", value: "65.3%", color: "text-indigo-700" },
+            ].map(s => (
+              <div key={s.label} className="bg-card rounded-2xl p-4 border border-border">
+                <p className="text-xs text-muted-foreground">{s.label}</p>
+                <p className={cn("text-xl font-semibold font-mono mt-1", s.color)}>{s.value}</p>
+              </div>
+            ))}
+          </div>
+          <div className="bg-card rounded-2xl p-5 border border-border">
+            <h3 className="font-semibold mb-1" style={{ fontFamily: "Fraunces, serif" }}>7-Month Income vs Expense Trend</h3>
+            <p className="text-xs text-muted-foreground mb-5">Monthly comparison for Oct 2023 – Apr 2024</p>
+            <ResponsiveContainer width="100%" height={280}>
+              <AreaChart data={MONTHLY_DATA}>
+                <defs>
+                  <linearGradient id="incomeGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#14C768" stopOpacity={0.15} />
+                    <stop offset="95%" stopColor="#14C768" stopOpacity={0.02} />
+                  </linearGradient>
+                  <linearGradient id="expenseGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#0B4832" stopOpacity={0.15} />
+                    <stop offset="95%" stopColor="#0B4832" stopOpacity={0.02} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.06)" vertical={false} />
+                <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#6B6560", fontFamily: "DM Mono" }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fontSize: 11, fill: "#6B6560", fontFamily: "DM Mono" }} axisLine={false} tickLine={false} tickFormatter={v => `৳${(v / 1000).toFixed(0)}k`} />
+                <Tooltip formatter={(v: number) => fmt(v)} contentStyle={{ borderRadius: 10, border: "1px solid rgba(0,0,0,0.08)", fontFamily: "DM Mono", fontSize: 12 }} />
+                <Legend wrapperStyle={{ fontSize: 12, fontFamily: "Outfit" }} />
+                <Area type="monotone" dataKey="income" name="Income" stroke="#14C768" fill="url(#incomeGrad)" strokeWidth={2} dot={{ r: 4, fill: "#14C768" }} />
+                <Area type="monotone" dataKey="expenses" name="Expenses" stroke="#0B4832" fill="url(#expenseGrad)" strokeWidth={2} dot={{ r: 4, fill: "#0B4832" }} />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        </>
+      )}
+
+      {tab === "income" && (
+        <div className="bg-card rounded-2xl p-5 border border-border">
+          <h3 className="font-semibold mb-1" style={{ fontFamily: "Fraunces, serif" }}>Monthly Income Breakdown</h3>
+          <p className="text-xs text-muted-foreground mb-5">Income by category per month</p>
+          <ResponsiveContainer width="100%" height={300}>
+            <BarChart data={MONTHLY_DATA}>
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.06)" vertical={false} />
+              <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#6B6560", fontFamily: "DM Mono" }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fontSize: 11, fill: "#6B6560", fontFamily: "DM Mono" }} axisLine={false} tickLine={false} tickFormatter={v => fmtK(v)} />
+              <Tooltip formatter={(v: number) => fmt(v)} contentStyle={{ borderRadius: 10, border: "1px solid rgba(0,0,0,0.08)", fontFamily: "DM Mono", fontSize: 12 }} />
+              <Bar dataKey="income" name="Total Income" fill="#14C768" radius={[4, 4, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+
+      {tab === "expenses" && (
+        <div className="grid lg:grid-cols-2 gap-6">
+          <div className="bg-card rounded-2xl p-5 border border-border">
+            <h3 className="font-semibold mb-1" style={{ fontFamily: "Fraunces, serif" }}>Monthly Expenses</h3>
+            <p className="text-xs text-muted-foreground mb-5">Monthly expense totals</p>
+            <ResponsiveContainer width="100%" height={250}>
+              <BarChart data={MONTHLY_DATA}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.06)" vertical={false} />
+                <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#6B6560", fontFamily: "DM Mono" }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fontSize: 11, fill: "#6B6560", fontFamily: "DM Mono" }} axisLine={false} tickLine={false} tickFormatter={v => fmtK(v)} />
+                <Tooltip formatter={(v: number) => fmt(v)} contentStyle={{ borderRadius: 10, border: "1px solid rgba(0,0,0,0.08)", fontFamily: "DM Mono", fontSize: 12 }} />
+                <Bar dataKey="expenses" name="Expenses" fill="#0B4832" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+          <div className="bg-card rounded-2xl p-5 border border-border">
+            <h3 className="font-semibold mb-1" style={{ fontFamily: "Fraunces, serif" }}>Expense by Category</h3>
+            <p className="text-xs text-muted-foreground mb-5">Distribution for current period</p>
+            <ResponsiveContainer width="100%" height={180}>
+              <PieChart>
+                <Pie data={EXPENSE_PIE} cx="50%" cy="50%" innerRadius={50} outerRadius={85} paddingAngle={3} dataKey="value">
+                  {EXPENSE_PIE.map((e, i) => <Cell key={i} fill={e.color} />)}
+                </Pie>
+                <Tooltip formatter={(v: number) => fmt(v)} contentStyle={{ borderRadius: 10, fontSize: 12, fontFamily: "DM Mono" }} />
+              </PieChart>
+            </ResponsiveContainer>
+            <div className="grid grid-cols-2 gap-y-2 mt-3">
+              {EXPENSE_PIE.map(item => (
+                <div key={item.name} className="flex items-center gap-2">
+                  <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: item.color }} />
+                  <span className="text-xs text-muted-foreground">{item.name}</span>
+                  <span className="text-xs font-mono font-medium text-foreground ml-auto">{fmt(item.value)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ─────────────────────────── ANNOUNCEMENTS ─────────────────────────── */
+function AnnouncementsView({ role }: { role: Role }) {
+  const [announcements, setAnnouncements] = useState<Announcement[]>(SEED_ANNOUNCEMENTS);
+  const [modal, setModal] = useState(false);
+  const [form, setForm] = useState({ title: "", body: "", priority: "medium" });
+
+  const handlePost = () => {
+    if (!form.title || !form.body) return;
+    setAnnouncements(prev => [{
+      id: String(Date.now()), title: form.title, body: form.body,
+      date: new Date().toISOString().slice(0, 10),
+      priority: form.priority as "high" | "medium" | "low",
+      author: "Admin Office"
+    }, ...prev]);
+    setModal(false);
+    setForm({ title: "", body: "", priority: "medium" });
+  };
+
+  const priorityVariant: Record<string, "danger" | "warning" | "neutral"> = {
+    high: "danger", medium: "warning", low: "neutral"
+  };
+
+  return (
+    <div className="p-6 flex flex-col gap-5" style={{ fontFamily: "Outfit, sans-serif" }}>
+      {role === "admin" && (
+        <div className="flex justify-end">
+          <Btn onClick={() => setModal(true)}><Plus size={15} /> Post Announcement</Btn>
+        </div>
+      )}
+      <div className="flex flex-col gap-4">
+        {announcements.map(a => (
+          <div key={a.id} className="bg-card rounded-2xl p-5 border border-border hover:shadow-sm transition-shadow">
+            <div className="flex items-start justify-between gap-3 mb-3">
+              <h3 className="font-semibold text-foreground" style={{ fontFamily: "Fraunces, serif" }}>{a.title}</h3>
+              <Badge label={a.priority} variant={priorityVariant[a.priority]} />
+            </div>
+            <p className="text-sm text-muted-foreground leading-relaxed mb-4">{a.body}</p>
+            <div className="flex items-center justify-between text-xs text-muted-foreground border-t border-border pt-3">
+              <span className="flex items-center gap-1.5"><User size={12} /> {a.author}</span>
+              <span className="font-mono">{fmtDate(a.date)}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <Modal open={modal} onClose={() => setModal(false)} title="Post Announcement">
+        <div className="flex flex-col gap-4">
+          <Input label="Title" value={form.title} onChange={v => setForm(f => ({ ...f, title: v }))} placeholder="Announcement title" />
+          <div className="flex flex-col gap-1.5">
+            <label className="text-sm font-medium text-foreground">Message</label>
+            <textarea
+              value={form.body} onChange={e => setForm(f => ({ ...f, body: e.target.value }))}
+              placeholder="Write your announcement here..."
+              rows={4}
+              className="px-3 py-2.5 rounded-lg border border-border bg-input-background text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-none"
+            />
+          </div>
+          <Select label="Priority" value={form.priority} onChange={v => setForm(f => ({ ...f, priority: v }))}
+            options={[{ value: "high", label: "High" }, { value: "medium", label: "Medium" }, { value: "low", label: "Low" }]} />
+          <div className="flex gap-3 mt-2">
+            <Btn onClick={() => setModal(false)} variant="ghost" className="flex-1 justify-center">Cancel</Btn>
+            <Btn onClick={handlePost} className="flex-1 justify-center"><Check size={14} /> Post</Btn>
+          </div>
+        </div>
+      </Modal>
+    </div>
+  );
+}
+
+/* ─────────────────────────── AI ANALYSIS ─────────────────────────── */
+function AIView({ role }: { role: Role }) {
+  const [loading, setLoading] = useState(false);
+  const [analysed, setAnalysed] = useState(false);
+  const [analysis, setAnalysis] = useState("");
+  const [summary, setSummary] = useState<{
+    members: { total_members: number; total_contributions: string; total_outstanding: string };
+    income: { total_income: string; income_count: number };
+    expenses: { total_expenses: string; expense_count: number };
+  } | null>(null);
+  const [error, setError] = useState("");
+
+  const handleAnalyse = async () => {
+    setLoading(true);
+    setError("");
+    setAnalysis("");
+    setSummary(null);
+
+    try {
+      const response = await fetch("/api/analysis", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ role, timePeriod: "last 6 months" }),
+      });
+
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.error ?? "Analysis request failed.");
+      }
+
+      const data = await response.json();
+      setAnalysis(data.analysis ?? "No analysis returned.");
+      setSummary(data.summary ?? null);
+      setAnalysed(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unexpected error.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const healthScore = 78;
+
+  return (
+    <div className="p-6 flex flex-col gap-6" style={{ fontFamily: "Outfit, sans-serif" }}>
+      {/* Header card */}
+      <div className="rounded-2xl p-6 border border-border relative overflow-hidden"
+        style={{ background: "linear-gradient(135deg, #09182A 0%, #0B4832 100%)" }}>
+        <div className="absolute inset-0 opacity-20" style={{ backgroundImage: "radial-gradient(circle at 80% 50%, #14C768 0%, transparent 60%)" }} />
+        <div className="relative z-10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2 mb-2">
+              <Sparkles size={18} className="text-accent" />
+              <span className="text-accent text-sm font-medium">AI-Powered Analysis</span>
+            </div>
+            <h2 className="text-2xl font-semibold text-white" style={{ fontFamily: "Fraunces, serif" }}>
+              {role === "admin" ? "Financial Intelligence Report" : "Your Personal Financial Summary"}
+            </h2>
+            <p className="text-white/60 text-sm mt-1">
+              {analysed ? "Analysis complete — last run just now" : "Click to generate a fresh analysis of your financial data"}
+            </p>
+          </div>
+          <button onClick={handleAnalyse} disabled={loading}
+            className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-accent text-white font-medium text-sm hover:opacity-90 transition-all disabled:opacity-60 flex-shrink-0">
+            {loading ? (
+              <>
+                <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                Analysing...
+              </>
+            ) : (
+              <><Sparkles size={15} /> {analysed ? "Re-analyse" : "Generate Analysis"}</>
+            )}
+          </button>
+        </div>
+      </div>
+
+      {error && (
+        <div className="bg-red-50 border border-red-200 text-red-700 rounded-2xl p-4">
+          <p className="font-medium">Analysis error</p>
+          <p className="text-sm mt-1">{error}</p>
+        </div>
+      )}
+
+      {analysis && (
+        <div className="grid gap-5 lg:grid-cols-[2fr_1fr]">
+          <div className="bg-card rounded-2xl p-5 border border-border">
+            <h3 className="font-semibold text-foreground mb-3" style={{ fontFamily: "Fraunces, serif" }}>AI Financial Analysis</h3>
+            <pre className="whitespace-pre-wrap text-sm leading-6 text-muted-foreground">{analysis}</pre>
+          </div>
+          {summary && (
+            <div className="bg-card rounded-2xl p-5 border border-border">
+              <h3 className="font-semibold text-foreground mb-3" style={{ fontFamily: "Fraunces, serif" }}>Summary</h3>
+              <div className="space-y-3 text-sm text-muted-foreground">
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">Members</p>
+                  <p className="font-semibold text-foreground">{summary.members.total_members}</p>
+                  <p>Total contributions: Tk {Number(summary.members.total_contributions).toLocaleString()}</p>
+                  <p>Outstanding: Tk {Number(summary.members.total_outstanding).toLocaleString()}</p>
+                </div>
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">Income</p>
+                  <p className="font-semibold text-foreground">Tk {Number(summary.income.total_income).toLocaleString()}</p>
+                  <p>{summary.income.income_count} income records</p>
+                </div>
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">Expenses</p>
+                  <p className="font-semibold text-foreground">Tk {Number(summary.expenses.total_expenses).toLocaleString()}</p>
+                  <p>{summary.expenses.expense_count} expense records</p>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {!analysed && !loading && (
+        <div className="flex flex-col items-center justify-center py-20 text-center">
+          <div className="w-16 h-16 rounded-2xl bg-muted flex items-center justify-center mb-4">
+            <Sparkles size={28} className="text-muted-foreground" />
+          </div>
+          <h3 className="font-semibold text-foreground mb-2" style={{ fontFamily: "Fraunces, serif" }}>Ready to generate insights</h3>
+          <p className="text-muted-foreground text-sm max-w-sm">Click the button above to analyse your financial data and receive AI-powered recommendations and insights.</p>
+        </div>
+      )}
+
+      {loading && (
+        <div className="flex flex-col items-center justify-center py-20 text-center">
+          <div className="w-12 h-12 border-4 border-muted border-t-accent rounded-full animate-spin mb-4" />
+          <p className="text-muted-foreground text-sm">Analysing financial data, patterns, and trends...</p>
+        </div>
+      )}
+
+      {analysed && !loading && role === "admin" && (
+        <div className="flex flex-col gap-5">
+          {/* Health Score */}
+          <div className="bg-card rounded-2xl p-5 border border-border">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="font-semibold text-foreground" style={{ fontFamily: "Fraunces, serif" }}>Financial Health Score</h3>
+                <p className="text-xs text-muted-foreground mt-1">Based on income stability, expense ratio, and reserves</p>
+              </div>
+              <div className="text-right">
+                <p className="text-4xl font-semibold font-mono text-emerald-700">{healthScore}</p>
+                <Badge label="Good" variant="success" />
+              </div>
+            </div>
+            <div className="mt-4 h-2.5 rounded-full bg-muted overflow-hidden">
+              <div className="h-full rounded-full bg-gradient-to-r from-emerald-600 to-accent transition-all duration-1000"
+                style={{ width: `${healthScore}%` }} />
+            </div>
+            <div className="flex justify-between text-xs text-muted-foreground mt-2">
+              <span>0 — Critical</span><span>100 — Excellent</span>
+            </div>
+          </div>
+
+          {/* Insights Grid */}
+          <div className="grid lg:grid-cols-2 gap-5">
+            {/* Spending Patterns */}
+            <div className="bg-card rounded-2xl p-5 border border-border">
+              <div className="flex items-center gap-2 mb-3">
+                <div className="w-8 h-8 rounded-lg bg-indigo-50 flex items-center justify-center">
+                  <Activity size={16} className="text-indigo-600" />
+                </div>
+                <h4 className="font-semibold text-foreground text-sm">Spending Pattern Analysis</h4>
+              </div>
+              <div className="flex flex-col gap-2 text-sm text-muted-foreground">
+                <p>• Event spending increased <strong className="text-foreground">42%</strong> in Q1 2024 vs Q4 2023</p>
+                <p>• Operations costs remained <strong className="text-foreground">stable</strong> month-over-month</p>
+                <p>• Welfare expenditures grew proportionally with member growth (+15%)</p>
+                <p>• Admin overhead is below industry average at <strong className="text-foreground">13.8%</strong> of total expenses</p>
+              </div>
+            </div>
+
+            {/* Cash Flow */}
+            <div className="bg-card rounded-2xl p-5 border border-border">
+              <div className="flex items-center gap-2 mb-3">
+                <div className="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center">
+                  <TrendingUp size={16} className="text-emerald-600" />
+                </div>
+                <h4 className="font-semibold text-foreground text-sm">Cash Flow Insights</h4>
+              </div>
+              <div className="flex flex-col gap-2 text-sm text-muted-foreground">
+                <p>• Positive cash flow maintained for <strong className="text-foreground">7 consecutive months</strong></p>
+                <p>• Average monthly surplus: <strong className="text-foreground">Tk 168,500</strong></p>
+                <p>• Current reserves provide a <strong className="text-foreground">3.2-month</strong> operational runway</p>
+                <p>• Sponsorship income diversification reduced revenue concentration risk</p>
+              </div>
+            </div>
+
+            {/* Forecast */}
+            <div className="bg-card rounded-2xl p-5 border border-border">
+              <div className="flex items-center gap-2 mb-3">
+                <div className="w-8 h-8 rounded-lg bg-amber-50 flex items-center justify-center">
+                  <Target size={16} className="text-amber-600" />
+                </div>
+                <h4 className="font-semibold text-foreground text-sm">30-Day Balance Forecast</h4>
+              </div>
+              <div className="flex items-end gap-4 mb-3">
+                <div>
+                  <p className="text-xs text-muted-foreground">Current Balance</p>
+                  <p className="text-xl font-semibold font-mono text-foreground">Tk 1,874,500</p>
+                </div>
+                <ArrowUpRight size={20} className="text-emerald-500 mb-1" />
+                <div>
+                  <p className="text-xs text-muted-foreground">Predicted (30 days)</p>
+                  <p className="text-xl font-semibold font-mono text-emerald-700">Tk 2,043,000</p>
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground">+8.9% growth predicted based on historical patterns. Confidence: 84%</p>
+            </div>
+
+            {/* Recommendations */}
+            <div className="bg-card rounded-2xl p-5 border border-border">
+              <div className="flex items-center gap-2 mb-3">
+                <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
+                  <Sparkles size={16} className="text-primary" />
+                </div>
+                <h4 className="font-semibold text-foreground text-sm">Budget Recommendations</h4>
+              </div>
+              <div className="flex flex-col gap-2.5">
+                {[
+                  "Increase monthly contribution target by 8% to build a 6-month emergency reserve",
+                  "Switch software subscriptions to annual billing — estimated Tk 32,000 annual savings",
+                  "Event budget optimization could cut Tk 12,000/month without quality impact",
+                ].map((rec, i) => (
+                  <div key={i} className="flex items-start gap-2.5 text-sm text-muted-foreground">
+                    <div className="w-5 h-5 rounded-full bg-accent/15 flex items-center justify-center flex-shrink-0 mt-0.5">
+                      <span className="text-accent text-xs font-mono font-medium">{i + 1}</span>
+                    </div>
+                    {rec}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {analysed && !loading && role === "member" && (
+        <div className="flex flex-col gap-5">
+          <div className="grid lg:grid-cols-3 gap-4">
+            <div className="bg-card rounded-2xl p-5 border border-border">
+              <p className="text-xs text-muted-foreground">Your Total Contributions</p>
+              <p className="text-2xl font-semibold font-mono text-emerald-700 mt-1">Tk 124,000</p>
+              <p className="text-xs text-muted-foreground mt-1">Since Jan 2023</p>
+            </div>
+            <div className="bg-card rounded-2xl p-5 border border-border">
+              <p className="text-xs text-muted-foreground">Outstanding Balance</p>
+              <p className="text-2xl font-semibold font-mono text-amber-700 mt-1">Tk 0</p>
+              <p className="text-xs text-accent mt-1 flex items-center gap-1"><Check size={12} /> Fully paid up</p>
+            </div>
+            <div className="bg-card rounded-2xl p-5 border border-border">
+              <p className="text-xs text-muted-foreground">Contribution Rank</p>
+              <p className="text-2xl font-semibold font-mono mt-1">#3 of 8</p>
+              <p className="text-xs text-muted-foreground mt-1">Top 40% of contributors</p>
+            </div>
+          </div>
+          <div className="bg-card rounded-2xl p-5 border border-border">
+            <h4 className="font-semibold mb-3" style={{ fontFamily: "Fraunces, serif" }}>Personalized Recommendations</h4>
+            <div className="flex flex-col gap-3">
+              {[
+                { icon: Check, text: "You are fully up to date — no outstanding contributions. Excellent standing!", color: "text-emerald-600", bg: "bg-emerald-50" },
+                { icon: Target, text: "Increasing your monthly contribution by Tk 2,000 would move you into the top 25% of contributors.", color: "text-indigo-600", bg: "bg-indigo-50" },
+                { icon: Bell, text: "Next contribution window opens May 1st. Set a reminder to contribute early and maintain your excellent track record.", color: "text-amber-600", bg: "bg-amber-50" },
+              ].map(({ icon: Icon, text, color, bg }, i) => (
+                <div key={i} className="flex items-start gap-3 p-3 rounded-xl bg-muted/50">
+                  <div className={cn("w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0", bg)}>
+                    <Icon size={14} className={color} />
+                  </div>
+                  <p className="text-sm text-muted-foreground">{text}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ─────────────────────────── MEMBER HOME ─────────────────────────── */
+function MemberHomeView() {
+  const me = SEED_MEMBERS[0];
+  const myTxs = SEED_TRANSACTIONS.filter(t => t.type === "income" && t.category === "Monthly Contribution").slice(0, 4);
+
+  return (
+    <div className="p-6 flex flex-col gap-6" style={{ fontFamily: "Outfit, sans-serif" }}>
+      {/* Welcome */}
+      <div className="rounded-2xl p-6 border border-border relative overflow-hidden"
+        style={{ background: "linear-gradient(135deg, #09182A 0%, #0B4832 100%)" }}>
+        <div className="absolute inset-0 opacity-10" style={{ backgroundImage: "radial-gradient(circle at 70% 60%, #14C768 0%, transparent 55%)" }} />
+        <div className="relative z-10 flex items-center gap-4">
+          <Avatar initials={me.initials} size="lg" color="#14C768" />
+          <div>
+            <p className="text-white/60 text-sm">Welcome back,</p>
+            <h2 className="text-2xl font-semibold text-white" style={{ fontFamily: "Fraunces, serif" }}>{me.name}</h2>
+            <p className="text-white/60 text-xs mt-1">Member since {fmtDate(me.joined)}</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Stats */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+        <div className="bg-card rounded-2xl p-4 border border-border">
+          <p className="text-xs text-muted-foreground">My Contributions</p>
+          <p className="text-xl font-semibold font-mono text-emerald-700 mt-1">{fmt(me.contributions)}</p>
+        </div>
+        <div className="bg-card rounded-2xl p-4 border border-border">
+          <p className="text-xs text-muted-foreground">Outstanding</p>
+          <p className={cn("text-xl font-semibold font-mono mt-1", me.outstanding > 0 ? "text-amber-700" : "text-muted-foreground")}>
+            {me.outstanding > 0 ? fmt(me.outstanding) : "—"}
+          </p>
+        </div>
+        <div className="bg-card rounded-2xl p-4 border border-border col-span-2 sm:col-span-1">
+          <p className="text-xs text-muted-foreground">Account Status</p>
+          <div className="mt-1.5"><Badge label={me.status} variant={me.status === "active" ? "success" : "neutral"} /></div>
+        </div>
+      </div>
+
+      {/* Fund Summary */}
+      <div className="bg-card rounded-2xl p-5 border border-border">
+        <h3 className="font-semibold mb-4" style={{ fontFamily: "Fraunces, serif" }}>Organization Fund Summary</h3>
+        <div className="grid grid-cols-2 gap-3">
+          {[
+            { label: "Total Fund Balance", value: "Tk 1,874,500", color: "text-foreground" },
+            { label: "Active Members", value: "6 of 8", color: "text-foreground" },
+            { label: "Total Income (YTD)", value: "Tk 1,671,000", color: "text-emerald-700" },
+            { label: "Total Expenses (YTD)", value: "Tk 579,500", color: "text-red-600" },
+          ].map(s => (
+            <div key={s.label} className="p-3 rounded-xl bg-muted/40 border border-border">
+              <p className="text-xs text-muted-foreground">{s.label}</p>
+              <p className={cn("text-base font-semibold font-mono mt-1", s.color)}>{s.value}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Donate / Payment Section */}
+      <div className="rounded-2xl border border-border bg-gradient-to-br from-emerald-50 to-white p-5 shadow-sm">
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div>
+            <p className="text-sm font-medium text-emerald-700">Make a contribution</p>
+            <h3 className="font-semibold text-foreground mt-1" style={{ fontFamily: "Fraunces, serif" }}>Donate or pay your monthly dues</h3>
+            <p className="text-sm text-muted-foreground mt-2 max-w-xl">
+              Support the organization securely with a quick payment. Your contribution helps fund welfare programs, events, and community initiatives.
+            </p>
+          </div>
+          <div className="rounded-2xl border border-emerald-200 bg-white p-4 min-w-[220px]">
+            <p className="text-xs text-muted-foreground">Suggested amount</p>
+            <p className="text-2xl font-semibold font-mono text-foreground mt-1">Tk 1,000</p>
+            <button className="mt-3 w-full rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-emerald-700 transition-colors">
+              Pay Now
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Recent Activity */}
+      <div className="bg-card rounded-2xl border border-border overflow-hidden">
+        <div className="px-5 py-4 border-b border-border">
+          <h3 className="font-semibold" style={{ fontFamily: "Fraunces, serif" }}>Recent Contribution Activity</h3>
+        </div>
+        <div className="flex flex-col divide-y divide-border">
+          {myTxs.map(tx => (
+            <div key={tx.id} className="flex items-center justify-between px-5 py-3.5 hover:bg-muted/20 transition-colors">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center">
+                  <CreditCard size={14} className="text-emerald-600" />
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-foreground">{tx.description}</p>
+                  <p className="text-xs text-muted-foreground font-mono">{fmtDate(tx.date)}</p>
+                </div>
+              </div>
+              <span className="font-mono text-sm font-semibold text-emerald-700">+{fmt(tx.amount)}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Announcements preview */}
+      <div className="bg-card rounded-2xl border border-border overflow-hidden">
+        <div className="px-5 py-4 border-b border-border">
+          <h3 className="font-semibold" style={{ fontFamily: "Fraunces, serif" }}>Latest Announcements</h3>
+        </div>
+        <div className="flex flex-col divide-y divide-border">
+          {SEED_ANNOUNCEMENTS.slice(0, 2).map(a => (
+            <div key={a.id} className="px-5 py-4 hover:bg-muted/20 transition-colors">
+              <div className="flex items-start justify-between gap-2 mb-1">
+                <p className="text-sm font-medium text-foreground">{a.title}</p>
+                <Badge label={a.priority} variant={a.priority === "high" ? "danger" : a.priority === "medium" ? "warning" : "neutral"} />
+              </div>
+              <p className="text-xs text-muted-foreground line-clamp-2">{a.body}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ─────────────────────────── APP SHELL ─────────────────────────── */
+const VIEW_TITLES: Partial<Record<View, { title: string; subtitle: string }>> = {
+  dashboard: { title: "Dashboard", subtitle: "Organization financial overview" },
+  members: { title: "Member Management", subtitle: "Manage organization members" },
+  income: { title: "Fund Income", subtitle: "Track all income sources" },
+  expenses: { title: "Expenses", subtitle: "Record and categorize expenses" },
+  reports: { title: "Reports & Analytics", subtitle: "Financial performance insights" },
+  announcements: { title: "Announcements", subtitle: "Organization-wide communications" },
+  ai: { title: "AI Financial Analysis", subtitle: "Powered by intelligent insights" },
+  "member-home": { title: "My Dashboard", subtitle: "Your personal financial overview" },
+};
+
+function AppShell({ role, onLogout }: { role: Role; onLogout: () => void }) {
+  const defaultView: View = role === "admin" ? "dashboard" : "member-home";
+  const [view, setView] = useState<View>(defaultView);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [editProfileOpen, setEditProfileOpen] = useState(false);
+  const meta = VIEW_TITLES[view] || { title: "FundFlow", subtitle: "" };
+
+  const [profile, setProfile] = useState<ProfileInfo>({
+    name: role === "admin" ? "Admin Adeyemi" : "Amara Nwosu",
+    email: role === "admin" ? "admin@fundflow.org" : "amara@fundflow.org",
+    phone: "+234 801 234 5678",
+    organization: "FundFlow Community Trust",
+    role,
+    initials: role === "admin" ? "AA" : "AN",
+  });
+
+  const [profileForm, setProfileForm] = useState({ ...profile });
+
+  const handleSaveProfile = () => {
+    const initials = profileForm.name.split(" ").map((w: string) => w[0]).join("").slice(0, 2).toUpperCase();
+    setProfile({ ...profileForm, initials });
+    setEditProfileOpen(false);
+  };
+
+  const renderView = () => {
+    switch (view) {
+      case "dashboard": return <DashboardView />;
+      case "members": return <MembersView />;
+      case "income": return <IncomeView />;
+      case "expenses": return <ExpensesView />;
+      case "reports": return <ReportsView />;
+      case "announcements": return <AnnouncementsView role={role} />;
+      case "ai": return <AIView role={role} />;
+      case "member-home": return <MemberHomeView />;
+      default: return <DashboardView />;
+    }
+  };
+
+  return (
+    <div className="flex h-screen overflow-hidden bg-background" style={{ fontFamily: "Outfit, sans-serif" }}>
+      <Sidebar view={view} onView={setView} role={role} onLogout={onLogout}
+        sidebarOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden pt-20">
+        <Header
+          title={meta.title}
+          subtitle={meta.subtitle}
+          onMenuClick={() => setSidebarOpen(true)}
+          profile={profile}
+          onEditProfile={() => { setProfileForm({ ...profile }); setEditProfileOpen(true); }}
+          onLogout={onLogout}
+        />
+        <main className="flex-1 overflow-y-auto">{renderView()}</main>
+      </div>
+
+      {/* Edit Profile Modal */}
+      <Modal open={editProfileOpen} onClose={() => setEditProfileOpen(false)} title="Edit Profile">
+        <div className="flex flex-col gap-4">
+          {/* Avatar preview */}
+          <div className="flex items-center gap-4 p-4 rounded-xl bg-muted/50 border border-border">
+            <Avatar initials={profileForm.name.split(" ").map((w: string) => w[0]).join("").slice(0, 2).toUpperCase() || "??"} size="lg" />
+            <div>
+              <p className="text-sm font-medium text-foreground">{profileForm.name || "Your Name"}</p>
+              <p className="text-xs text-muted-foreground">{profileForm.email}</p>
+              <div className="mt-1"><Badge label={role} variant={role === "admin" ? "info" : "success"} /></div>
+            </div>
+          </div>
+          <Input label="Full Name" value={profileForm.name} onChange={v => setProfileForm(f => ({ ...f, name: v }))} placeholder="Your full name" />
+          <Input label="Email Address" value={profileForm.email} onChange={v => setProfileForm(f => ({ ...f, email: v }))} type="email" placeholder="you@example.com" />
+          <Input label="Phone Number" value={profileForm.phone} onChange={v => setProfileForm(f => ({ ...f, phone: v }))} placeholder="+234 800 000 0000" />
+          <Input label="Organization" value={profileForm.organization} onChange={v => setProfileForm(f => ({ ...f, organization: v }))} placeholder="Organization name" />
+          <div className="flex gap-3 mt-1">
+            <Btn onClick={() => setEditProfileOpen(false)} variant="ghost" className="flex-1 justify-center">Cancel</Btn>
+            <Btn onClick={handleSaveProfile} className="flex-1 justify-center"><Check size={14} /> Save Changes</Btn>
+          </div>
+        </div>
+      </Modal>
+    </div>
+  );
+}
+
+/* ─────────────────────────── ROOT ─────────────────────────── */
+export default function App() {
+  const [page, setPage] = useState<AppPage>("landing");
+  const [auth, setAuth] = useState<{ role: Role } | null>(null);
+
+  if (page === "landing") return <LandingPage onGetStarted={() => setPage("login")} />;
+  if (page === "login" || !auth) return (
+    <LoginView
+      onLogin={role => { setAuth({ role }); setPage("app"); }}
+      onBack={() => setPage("landing")}
+    />
+  );
+  return <AppShell role={auth.role} onLogout={() => { setAuth(null); setPage("landing"); }} />;
+}
