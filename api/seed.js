@@ -1,4 +1,5 @@
 const { connectToDatabase } = require("./_lib/db");
+const bcrypt = require("bcryptjs");
 
 const members = [
   { id: "1", name: "Amara Nwosu", email: "amara@fundflow.org", role: "member", initials: "AN", joined: "2023-01-15", status: "active", contributions: 124000, outstanding: 0, phone: "+880 1712 345678" },
@@ -33,6 +34,12 @@ const announcements = [
   { id: "a4", title: "Welcome to March Cohort Members", body: "Please join us in welcoming 6 new members who joined in March 2024. New member orientation is scheduled for April 22nd at 10 AM. All members are encouraged to attend.", date: "2024-04-10", priority: "low", author: "Admin Office" },
 ];
 
+// Default user accounts to seed
+const defaultUsers = [
+  { email: "admin@fundflow.org", name: "Admin Adeyemi", role: "admin" },
+  { email: "member@fundflow.org", name: "Amara Nwosu", role: "member" },
+];
+
 module.exports = async function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed. Use POST to seed the database." });
@@ -45,11 +52,24 @@ module.exports = async function handler(req, res) {
     await db.collection("members").deleteMany({});
     await db.collection("transactions").deleteMany({});
     await db.collection("announcements").deleteMany({});
+    await db.collection("users").deleteMany({});
 
     // Insert seed data
     if (members.length > 0) await db.collection("members").insertMany(members);
     if (transactions.length > 0) await db.collection("transactions").insertMany(transactions);
     if (announcements.length > 0) await db.collection("announcements").insertMany(announcements);
+
+    // Seed user accounts with hashed passwords
+    const hashedPassword = await bcrypt.hash("password", 10);
+    const userDocs = defaultUsers.map((u) => ({
+      email: u.email,
+      password: hashedPassword,
+      name: u.name,
+      role: u.role,
+      createdAt: new Date().toISOString().slice(0, 10),
+      createdBy: null,
+    }));
+    await db.collection("users").insertMany(userDocs);
 
     return res.json({
       success: true,
@@ -57,6 +77,7 @@ module.exports = async function handler(req, res) {
         members: members.length,
         transactions: transactions.length,
         announcements: announcements.length,
+        users: userDocs.length,
       },
     });
   } catch (error) {

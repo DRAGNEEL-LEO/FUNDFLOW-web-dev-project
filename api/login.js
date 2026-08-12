@@ -1,11 +1,8 @@
+const { connectToDatabase } = require("./_lib/db");
 const { signJwt } = require("./_lib/auth");
+const bcrypt = require("bcryptjs");
 
-const users = [
-  { email: "admin@fundflow.org", password: "password", role: "admin", name: "Admin Adeyemi" },
-  { email: "member@fundflow.org", password: "password", role: "member", name: "Amara Nwosu" },
-];
-
-module.exports = function handler(req, res) {
+module.exports = async function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed." });
   }
@@ -15,11 +12,23 @@ module.exports = function handler(req, res) {
     return res.status(400).json({ error: "Email and password are required." });
   }
 
-  const user = users.find((u) => u.email === email && u.password === password);
-  if (!user) {
-    return res.status(401).json({ error: "Invalid credentials." });
-  }
+  try {
+    const { db } = await connectToDatabase();
+    const user = await db.collection("users").findOne({ email });
 
-  const token = signJwt({ email: user.email, role: user.role });
-  return res.json({ token, role: user.role, name: user.name, email: user.email });
+    if (!user) {
+      return res.status(401).json({ error: "Invalid credentials." });
+    }
+
+    const valid = await bcrypt.compare(password, user.password);
+    if (!valid) {
+      return res.status(401).json({ error: "Invalid credentials." });
+    }
+
+    const token = signJwt({ email: user.email, role: user.role, name: user.name });
+    return res.json({ token, role: user.role, name: user.name, email: user.email });
+  } catch (error) {
+    console.error("Login failed:", error);
+    return res.status(500).json({ error: "Login failed: " + error.message });
+  }
 };

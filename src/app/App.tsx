@@ -1,4 +1,5 @@
-import { useState, useMemo, useRef, useEffect } from "react";
+import { useState, useMemo, useRef, useEffect, useCallback } from "react";
+import { apiFetch, getStoredAuth, storeAuth, clearAuth } from "./api";
 import {
   LayoutDashboard, Users, TrendingUp, TrendingDown, BarChart2,
   Bell, Sparkles, LogOut, Search, Plus, ArrowUpRight, ArrowDownRight,
@@ -527,16 +528,24 @@ function LandingPage({ onGetStarted }: { onGetStarted: () => void }) {
 }
 
 /* ─────────────────────────── LOGIN ─────────────────────────── */
-function LoginView({ onLogin, onBack }: { onLogin: (role: Role) => void; onBack?: () => void }) {
+function LoginView({ onLogin, onBack }: { onLogin: (role: Role, token: string, name: string, email: string) => void; onBack?: () => void }) {
   const [email, setEmail] = useState("admin@fundflow.org");
   const [password, setPassword] = useState("password");
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!email || !password) { setError("Please fill in all fields."); return; }
-    if (email === "admin@fundflow.org") onLogin("admin");
-    else if (email === "member@fundflow.org") onLogin("member");
-    else { setError("Invalid credentials. Try admin@fundflow.org or member@fundflow.org"); }
+    setLoading(true); setError("");
+    try {
+      const data = await apiFetch<{ token: string; role: Role; name: string; email: string }>("/api/login", {
+        method: "POST", body: { email, password },
+      });
+      storeAuth({ token: data.token, role: data.role, name: data.name, email: data.email });
+      onLogin(data.role, data.token, data.name, data.email);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Login failed.");
+    } finally { setLoading(false); }
   };
 
   return (
@@ -835,12 +844,20 @@ function Header({ title, subtitle, onMenuClick, profile, onEditProfile, onLogout
 }
 
 /* ─────────────────────────── DASHBOARD ─────────────────────────── */
-function DashboardView() {
-  const totalIncome = SEED_TRANSACTIONS.filter(t => t.type === "income").reduce((s, t) => s + t.amount, 0);
-  const totalExpenses = SEED_TRANSACTIONS.filter(t => t.type === "expense").reduce((s, t) => s + t.amount, 0);
-  const balance = 1248500 + totalIncome - totalExpenses;
-  const activeMembers = SEED_MEMBERS.filter(m => m.status === "active").length;
-  const recent = SEED_TRANSACTIONS.slice(0, 6);
+function DashboardView({ token }: { token: string }) {
+  const [members, setMembers] = useState<Member[]>([]);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+
+  useEffect(() => {
+    apiFetch<Member[]>("/api/members", { token }).then(setMembers).catch(() => {});
+    apiFetch<Transaction[]>("/api/transactions", { token }).then(setTransactions).catch(() => {});
+  }, [token]);
+
+  const totalIncome = transactions.filter(t => t.type === "income").reduce((s, t) => s + t.amount, 0);
+  const totalExpenses = transactions.filter(t => t.type === "expense").reduce((s, t) => s + t.amount, 0);
+  const balance = totalIncome - totalExpenses;
+  const activeMembers = members.filter(m => m.status === "active").length;
+  const recent = transactions.slice(0, 6);
 
   return (
     <div className="p-6 flex flex-col gap-6" style={{ fontFamily: "Outfit, sans-serif" }}>
@@ -849,7 +866,7 @@ function DashboardView() {
         <StatCard label="Total Fund Balance" value={fmt(balance)} sub="As of today" icon={Wallet} trend={8.9} color="balance" />
         <StatCard label="Total Income" value={fmt(totalIncome)} sub="This period" icon={TrendingUp} trend={12.4} color="income" />
         <StatCard label="Total Expenses" value={fmt(totalExpenses)} sub="This period" icon={TrendingDown} trend={-3.2} color="expense" />
-        <StatCard label="Active Members" value={String(activeMembers)} sub={`of ${SEED_MEMBERS.length} total`} icon={Users} trend={6} color="members" />
+        <StatCard label="Active Members" value={String(activeMembers)} sub={`of ${members.length} total`} icon={Users} trend={6} color="members" />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -948,12 +965,19 @@ function DashboardView() {
 }
 
 /* ─────────────────────────── MEMBERS ─────────────────────────── */
-function MembersView() {
-  const [members, setMembers] = useState<Member[]>(SEED_MEMBERS);
+function MembersView({ token }: { token: string }) {
+  const [members, setMembers] = useState<Member[]>([]);
   const [search, setSearch] = useState("");
   const [modal, setModal] = useState<"add" | "edit" | null>(null);
   const [editTarget, setEditTarget] = useState<Member | null>(null);
-  const [form, setForm] = useState({ name: "", email: "", phone: "", status: "active" });
+  const [form, setForm] = useState({ name: "", email: "", phone: "", status: "active", password: "" });
+  const [saving, setSaving] = useState(false);
+
+  const loadMembers = useCallback(() => {
+    apiFetch<Member[]>("/api/members", { token }).then(setMembers).catch(() => {});
+  }, [token]);
+
+  useEffect(() => { loadMembers(); }, [loadMembers]);
 
   const filtered = useMemo(() =>
     members.filter(m =>
@@ -961,25 +985,49 @@ function MembersView() {
       m.email.toLowerCase().includes(search.toLowerCase())
     ), [members, search]);
 
-  const openAdd = () => { setForm({ name: "", email: "", phone: "", status: "active" }); setModal("add"); };
-  const openEdit = (m: Member) => { setEditTarget(m); setForm({ name: m.name, email: m.email, phone: m.phone, status: m.status }); setModal("edit"); };
-  const handleSave = () => {
-    if (modal === "add") {
-      setMembers(prev => [...prev, {
-        id: String(Date.now()), name: form.name, email: form.email, phone: form.phone,
-        role: "member", initials: form.name.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase(),
-        joined: new Date().toISOString().slice(0, 10),
-        status: form.status as "active" | "inactive",
-        contributions: 0, outstanding: 0
-      }]);
-    } else if (modal === "edit" && editTarget) {
-      setMembers(prev => prev.map(m => m.id === editTarget.id
-        ? { ...m, name: form.name, email: form.email, phone: form.phone, status: form.status as "active" | "inactive" }
-        : m));
-    }
-    setModal(null);
+  const openAdd = () => { setForm({ name: "", email: "", phone: "", status: "active", password: "" }); setModal("add"); };
+  const openEdit = (m: Member) => { setEditTarget(m); setForm({ name: m.name, email: m.email, phone: m.phone, status: m.status, password: "" }); setModal("edit"); };
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      if (modal === "add") {
+        const id = String(Date.now());
+        const initials = form.name.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase();
+        const doc = {
+          id, name: form.name, email: form.email, phone: form.phone,
+          role: "member" as const, initials,
+          joined: new Date().toISOString().slice(0, 10),
+          status: form.status as "active" | "inactive",
+          contributions: 0, outstanding: 0,
+        };
+        // Create user account so they can log in
+        await apiFetch("/api/register", {
+          method: "POST", token,
+          body: { email: form.email, password: form.password || "password", name: form.name, role: "member", phone: form.phone },
+        }).catch(() => {
+          // If register fails (e.g. email exists), still try to add member
+        });
+        await apiFetch("/api/members", { method: "POST", token, body: doc });
+      } else if (modal === "edit" && editTarget) {
+        await apiFetch("/api/members", {
+          method: "PUT", token,
+          body: { id: editTarget.id, name: form.name, email: form.email, phone: form.phone, status: form.status },
+        });
+      }
+      loadMembers();
+      setModal(null);
+    } catch (err) {
+      console.error("Save failed:", err);
+    } finally { setSaving(false); }
   };
-  const handleDelete = (id: string) => setMembers(prev => prev.filter(m => m.id !== id));
+
+  const handleDelete = async (id: string) => {
+    try {
+      await apiFetch("/api/members", { method: "DELETE", token, body: { id } });
+      loadMembers();
+    } catch (err) { console.error("Delete failed:", err); }
+  };
 
   return (
     <div className="p-6 flex flex-col gap-5" style={{ fontFamily: "Outfit, sans-serif" }}>
@@ -1067,11 +1115,14 @@ function MembersView() {
           <Input label="Full Name" value={form.name} onChange={v => setForm(f => ({ ...f, name: v }))} placeholder="e.g. Amara Nwosu" />
           <Input label="Email Address" value={form.email} onChange={v => setForm(f => ({ ...f, email: v }))} type="email" placeholder="member@example.com" />
           <Input label="Phone Number" value={form.phone} onChange={v => setForm(f => ({ ...f, phone: v }))} placeholder="+234 800 000 0000" />
+          {modal === "add" && (
+            <Input label="Login Password" value={form.password} onChange={v => setForm(f => ({ ...f, password: v }))} type="password" placeholder="Set a password for this member" />
+          )}
           <Select label="Status" value={form.status} onChange={v => setForm(f => ({ ...f, status: v }))}
             options={[{ value: "active", label: "Active" }, { value: "inactive", label: "Inactive" }]} />
           <div className="flex gap-3 mt-2">
             <Btn onClick={() => setModal(null)} variant="ghost" className="flex-1 justify-center">Cancel</Btn>
-            <Btn onClick={handleSave} className="flex-1 justify-center"><Check size={14} /> Save</Btn>
+            <Btn onClick={handleSave} className="flex-1 justify-center" disabled={saving}>{saving ? "Saving..." : <><Check size={14} /> Save</>}</Btn>
           </div>
         </div>
       </Modal>
@@ -1082,20 +1133,30 @@ function MembersView() {
 /* ─────────────────────────── INCOME ─────────────────────────── */
 const INCOME_CATS = ["Monthly Contribution", "Donation", "Membership Fee", "Sponsorship", "Other"];
 
-function IncomeView() {
-  const [txs, setTxs] = useState(SEED_TRANSACTIONS.filter(t => t.type === "income"));
+function IncomeView({ token }: { token: string }) {
+  const [txs, setTxs] = useState<Transaction[]>([]);
   const [modal, setModal] = useState(false);
   const [form, setForm] = useState({ description: "", amount: "", category: "Monthly Contribution", date: "" });
 
+  const loadTxs = useCallback(() => {
+    apiFetch<Transaction[]>("/api/transactions", { token }).then(data => setTxs(data.filter(t => t.type === "income"))).catch(() => {});
+  }, [token]);
+
+  useEffect(() => { loadTxs(); }, [loadTxs]);
+
   const total = txs.reduce((s, t) => s + t.amount, 0);
 
-  const handleAdd = () => {
+  const handleAdd = async () => {
     if (!form.description || !form.amount || !form.date) return;
-    setTxs(prev => [{
-      id: String(Date.now()), type: "income", category: form.category,
+    const doc = {
+      id: String(Date.now()), type: "income" as const, category: form.category,
       amount: Number(form.amount), description: form.description,
-      date: form.date, reference: `INC-${Date.now()}`, status: "completed"
-    }, ...prev]);
+      date: form.date, reference: `INC-${Date.now()}`, status: "completed" as const
+    };
+    try {
+      await apiFetch("/api/transactions", { method: "POST", token, body: doc });
+      loadTxs();
+    } catch (err) { console.error(err); }
     setModal(false);
     setForm({ description: "", amount: "", category: "Monthly Contribution", date: "" });
   };
@@ -1162,25 +1223,40 @@ function IncomeView() {
 /* ─────────────────────────── EXPENSES ─────────────────────────── */
 const EXPENSE_CATS = ["Operations", "Events", "Welfare", "Education", "Admin", "Other"];
 
-function ExpensesView() {
-  const [txs, setTxs] = useState(SEED_TRANSACTIONS.filter(t => t.type === "expense"));
+function ExpensesView({ token }: { token: string }) {
+  const [txs, setTxs] = useState<Transaction[]>([]);
   const [modal, setModal] = useState(false);
   const [form, setForm] = useState({ description: "", amount: "", category: "Operations", date: "" });
 
+  const loadTxs = useCallback(() => {
+    apiFetch<Transaction[]>("/api/transactions", { token }).then(data => setTxs(data.filter(t => t.type === "expense"))).catch(() => {});
+  }, [token]);
+
+  useEffect(() => { loadTxs(); }, [loadTxs]);
+
   const total = txs.reduce((s, t) => s + t.amount, 0);
 
-  const handleAdd = () => {
+  const handleAdd = async () => {
     if (!form.description || !form.amount || !form.date) return;
-    setTxs(prev => [{
-      id: String(Date.now()), type: "expense", category: form.category,
+    const doc = {
+      id: String(Date.now()), type: "expense" as const, category: form.category,
       amount: Number(form.amount), description: form.description,
-      date: form.date, reference: `EXP-${Date.now()}`, status: "completed"
-    }, ...prev]);
+      date: form.date, reference: `EXP-${Date.now()}`, status: "completed" as const
+    };
+    try {
+      await apiFetch("/api/transactions", { method: "POST", token, body: doc });
+      loadTxs();
+    } catch (err) { console.error(err); }
     setModal(false);
     setForm({ description: "", amount: "", category: "Operations", date: "" });
   };
 
-  const handleDelete = (id: string) => setTxs(prev => prev.filter(t => t.id !== id));
+  const handleDelete = async (id: string) => {
+    try {
+      await apiFetch("/api/transactions", { method: "DELETE", token, body: { id } });
+      loadTxs();
+    } catch (err) { console.error(err); }
+  };
 
   return (
     <div className="p-6 flex flex-col gap-5" style={{ fontFamily: "Outfit, sans-serif" }}>
@@ -1364,19 +1440,29 @@ function ReportsView() {
 }
 
 /* ─────────────────────────── ANNOUNCEMENTS ─────────────────────────── */
-function AnnouncementsView({ role }: { role: Role }) {
-  const [announcements, setAnnouncements] = useState<Announcement[]>(SEED_ANNOUNCEMENTS);
+function AnnouncementsView({ role, token }: { role: Role; token: string }) {
+  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [modal, setModal] = useState(false);
   const [form, setForm] = useState({ title: "", body: "", priority: "medium" });
 
-  const handlePost = () => {
+  const loadAnnouncements = useCallback(() => {
+    apiFetch<Announcement[]>("/api/announcements", { token }).then(setAnnouncements).catch(() => {});
+  }, [token]);
+
+  useEffect(() => { loadAnnouncements(); }, [loadAnnouncements]);
+
+  const handlePost = async () => {
     if (!form.title || !form.body) return;
-    setAnnouncements(prev => [{
+    const doc = {
       id: String(Date.now()), title: form.title, body: form.body,
       date: new Date().toISOString().slice(0, 10),
       priority: form.priority as "high" | "medium" | "low",
       author: "Admin Office"
-    }, ...prev]);
+    };
+    try {
+      await apiFetch("/api/announcements", { method: "POST", token, body: doc });
+      loadAnnouncements();
+    } catch (err) { console.error(err); }
     setModal(false);
     setForm({ title: "", body: "", priority: "medium" });
   };
@@ -1433,7 +1519,7 @@ function AnnouncementsView({ role }: { role: Role }) {
 }
 
 /* ─────────────────────────── AI ANALYSIS ─────────────────────────── */
-function AIView({ role }: { role: Role }) {
+function AIView({ role, token }: { role: Role; token: string }) {
   const [loading, setLoading] = useState(false);
   const [analysed, setAnalysed] = useState(false);
   const [analysis, setAnalysis] = useState("");
@@ -1453,7 +1539,10 @@ function AIView({ role }: { role: Role }) {
     try {
       const response = await fetch("/api/analysis", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`,
+        },
         body: JSON.stringify({ role, timePeriod: "last 6 months" }),
       });
 
@@ -1713,9 +1802,31 @@ function AIView({ role }: { role: Role }) {
 }
 
 /* ─────────────────────────── MEMBER HOME ─────────────────────────── */
-function MemberHomeView() {
-  const me = SEED_MEMBERS[0];
-  const myTxs = SEED_TRANSACTIONS.filter(t => t.type === "income" && t.category === "Monthly Contribution").slice(0, 4);
+function MemberHomeView({ token, userEmail }: { token: string; userEmail: string }) {
+  const [me, setMe] = useState<Member | null>(null);
+  const [myTxs, setMyTxs] = useState<Transaction[]>([]);
+  const [announcements, setAnn] = useState<Announcement[]>([]);
+  const [members, setMembers] = useState<Member[]>([]);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+
+  useEffect(() => {
+    apiFetch<Member[]>("/api/members", { token }).then(data => {
+      setMembers(data);
+      const found = data.find(m => m.email === userEmail);
+      setMe(found || data[0] || null);
+    }).catch(() => {});
+    apiFetch<Transaction[]>("/api/transactions", { token }).then(data => {
+      setTransactions(data);
+      setMyTxs(data.filter(t => t.type === "income" && t.category === "Monthly Contribution").slice(0, 4));
+    }).catch(() => {});
+    apiFetch<Announcement[]>("/api/announcements", { token }).then(setAnn).catch(() => {});
+  }, [token, userEmail]);
+
+  if (!me) return <div className="p-6 text-center text-muted-foreground">Loading...</div>;
+
+  const totalIncome = transactions.filter(t => t.type === "income").reduce((s, t) => s + t.amount, 0);
+  const totalExpenses = transactions.filter(t => t.type === "expense").reduce((s, t) => s + t.amount, 0);
+  const activeMembers = members.filter(m => m.status === "active").length;
 
   return (
     <div className="p-6 flex flex-col gap-6" style={{ fontFamily: "Outfit, sans-serif" }}>
@@ -1756,10 +1867,10 @@ function MemberHomeView() {
         <h3 className="font-semibold mb-4" style={{ fontFamily: "Fraunces, serif" }}>Organization Fund Summary</h3>
         <div className="grid grid-cols-2 gap-3">
           {[
-            { label: "Total Fund Balance", value: "Tk 1,874,500", color: "text-foreground" },
-            { label: "Active Members", value: "6 of 8", color: "text-foreground" },
-            { label: "Total Income (YTD)", value: "Tk 1,671,000", color: "text-emerald-700" },
-            { label: "Total Expenses (YTD)", value: "Tk 579,500", color: "text-red-600" },
+            { label: "Total Fund Balance", value: fmt(totalIncome - totalExpenses), color: "text-foreground" },
+            { label: "Active Members", value: `${activeMembers} of ${members.length}`, color: "text-foreground" },
+            { label: "Total Income (YTD)", value: fmt(totalIncome), color: "text-emerald-700" },
+            { label: "Total Expenses (YTD)", value: fmt(totalExpenses), color: "text-red-600" },
           ].map(s => (
             <div key={s.label} className="p-3 rounded-xl bg-muted/40 border border-border">
               <p className="text-xs text-muted-foreground">{s.label}</p>
@@ -1818,7 +1929,7 @@ function MemberHomeView() {
           <h3 className="font-semibold" style={{ fontFamily: "Fraunces, serif" }}>Latest Announcements</h3>
         </div>
         <div className="flex flex-col divide-y divide-border">
-          {SEED_ANNOUNCEMENTS.slice(0, 2).map(a => (
+          {announcements.slice(0, 2).map(a => (
             <div key={a.id} className="px-5 py-4 hover:bg-muted/20 transition-colors">
               <div className="flex items-start justify-between gap-2 mb-1">
                 <p className="text-sm font-medium text-foreground">{a.title}</p>
@@ -1845,7 +1956,7 @@ const VIEW_TITLES: Partial<Record<View, { title: string; subtitle: string }>> = 
   "member-home": { title: "My Dashboard", subtitle: "Your personal financial overview" },
 };
 
-function AppShell({ role, onLogout }: { role: Role; onLogout: () => void }) {
+function AppShell({ role, token, userName, userEmail, onLogout }: { role: Role; token: string; userName: string; userEmail: string; onLogout: () => void }) {
   const defaultView: View = role === "admin" ? "dashboard" : "member-home";
   const [view, setView] = useState<View>(defaultView);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -1853,12 +1964,12 @@ function AppShell({ role, onLogout }: { role: Role; onLogout: () => void }) {
   const meta = VIEW_TITLES[view] || { title: "FundFlow", subtitle: "" };
 
   const [profile, setProfile] = useState<ProfileInfo>({
-    name: role === "admin" ? "Admin Adeyemi" : "Amara Nwosu",
-    email: role === "admin" ? "admin@fundflow.org" : "amara@fundflow.org",
+    name: userName,
+    email: userEmail,
     phone: "+234 801 234 5678",
     organization: "FundFlow Community Trust",
     role,
-    initials: role === "admin" ? "AA" : "AN",
+    initials: userName.split(" ").map((w: string) => w[0]).join("").slice(0, 2).toUpperCase(),
   });
 
   const [profileForm, setProfileForm] = useState({ ...profile });
@@ -1871,15 +1982,15 @@ function AppShell({ role, onLogout }: { role: Role; onLogout: () => void }) {
 
   const renderView = () => {
     switch (view) {
-      case "dashboard": return <DashboardView />;
-      case "members": return <MembersView />;
-      case "income": return <IncomeView />;
-      case "expenses": return <ExpensesView />;
+      case "dashboard": return <DashboardView token={token} />;
+      case "members": return <MembersView token={token} />;
+      case "income": return <IncomeView token={token} />;
+      case "expenses": return <ExpensesView token={token} />;
       case "reports": return <ReportsView />;
-      case "announcements": return <AnnouncementsView role={role} />;
-      case "ai": return <AIView role={role} />;
-      case "member-home": return <MemberHomeView />;
-      default: return <DashboardView />;
+      case "announcements": return <AnnouncementsView role={role} token={token} />;
+      case "ai": return <AIView role={role} token={token} />;
+      case "member-home": return <MemberHomeView token={token} userEmail={userEmail} />;
+      default: return <DashboardView token={token} />;
     }
   };
 
@@ -1928,14 +2039,29 @@ function AppShell({ role, onLogout }: { role: Role; onLogout: () => void }) {
 /* ─────────────────────────── ROOT ─────────────────────────── */
 export default function App() {
   const [page, setPage] = useState<AppPage>("landing");
-  const [auth, setAuth] = useState<{ role: Role } | null>(null);
+  const [auth, setAuth] = useState<{ role: Role; token: string; name: string; email: string } | null>(null);
+
+  // Restore auth from localStorage on mount
+  useEffect(() => {
+    const stored = getStoredAuth();
+    if (stored) {
+      setAuth(stored);
+      setPage("app");
+    }
+  }, []);
+
+  const handleLogout = () => {
+    clearAuth();
+    setAuth(null);
+    setPage("landing");
+  };
 
   if (page === "landing") return <LandingPage onGetStarted={() => setPage("login")} />;
   if (page === "login" || !auth) return (
     <LoginView
-      onLogin={role => { setAuth({ role }); setPage("app"); }}
+      onLogin={(role, token, name, email) => { setAuth({ role, token, name, email }); setPage("app"); }}
       onBack={() => setPage("landing")}
     />
   );
-  return <AppShell role={auth.role} onLogout={() => { setAuth(null); setPage("landing"); }} />;
+  return <AppShell role={auth.role} token={auth.token} userName={auth.name} userEmail={auth.email} onLogout={handleLogout} />;
 }

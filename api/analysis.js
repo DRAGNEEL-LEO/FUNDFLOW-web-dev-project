@@ -1,7 +1,7 @@
 const { connectToDatabase } = require("./_lib/db");
 const { requireAuth } = require("./_lib/auth");
 
-const GEMINI_DEFAULT_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent";
+const GEMINI_DEFAULT_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent";
 
 async function requestGemini(prompt) {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -13,7 +13,7 @@ async function requestGemini(prompt) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: { temperature: 0.2, maxOutputTokens: 700 },
+      generationConfig: { temperature: 0.2, maxOutputTokens: 2048 },
     }),
   });
 
