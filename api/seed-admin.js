@@ -1,7 +1,7 @@
-const { connectToDatabase } = require("./_lib/db");
-const bcrypt = require("bcryptjs");
+import { connectToDatabase } from "../lib/db.js";
+import bcrypt from "bcryptjs";
 
-module.exports = async function handler(req, res) {
+export default async function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed. Use POST." });
   }
@@ -10,7 +10,6 @@ module.exports = async function handler(req, res) {
     const { db } = await connectToDatabase();
     const usersCol = db.collection("users");
 
-    // Only allow if no admin exists yet
     const existingAdmin = await usersCol.findOne({ role: "admin" });
     if (existingAdmin) {
       return res.status(403).json({
@@ -37,4 +36,4 @@ module.exports = async function handler(req, res) {
     console.error("Seed admin failed:", error);
     return res.status(500).json({ error: "Seed admin failed: " + error.message });
   }
-};
+}

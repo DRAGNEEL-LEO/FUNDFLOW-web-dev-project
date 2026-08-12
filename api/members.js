@@ -1,7 +1,7 @@
-const { connectToDatabase } = require("./_lib/db");
-const { requireAuth } = require("./_lib/auth");
+import { connectToDatabase } from "../lib/db.js";
+import { requireAuth } from "../lib/auth.js";
 
-module.exports = async function handler(req, res) {
+export default async function handler(req, res) {
   const user = requireAuth(req);
   if (!user) {
     return res.status(401).json({ error: "Unauthorized." });
@@ -76,4 +76,4 @@ module.exports = async function handler(req, res) {
   }
 
   return res.status(405).json({ error: "Method not allowed." });
-};
+}

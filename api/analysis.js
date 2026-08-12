@@ -1,5 +1,5 @@
-const { connectToDatabase } = require("./_lib/db");
-const { requireAuth } = require("./_lib/auth");
+import { connectToDatabase } from "../lib/db.js";
+import { requireAuth } from "../lib/auth.js";
 
 const GEMINI_DEFAULT_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent";
 
@@ -59,7 +59,7 @@ async function generateFinancialAnalysis(prompt) {
   return "No Gemini or OpenAI API key configured. Set GEMINI_API_KEY or OPENAI_API_KEY in your environment variables.";
 }
 
-module.exports = async function handler(req, res) {
+export default async function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed." });
   }
@@ -142,4 +142,4 @@ Highlight trends, risk areas, savings, and recommendations for improving fund he
     console.error(error);
     return res.status(500).json({ error: error.message || "Unable to generate analysis." });
   }
-};
+}

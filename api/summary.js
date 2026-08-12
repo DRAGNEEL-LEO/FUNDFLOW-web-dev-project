@@ -1,7 +1,7 @@
-const { connectToDatabase } = require("./_lib/db");
-const { requireAuth } = require("./_lib/auth");
+import { connectToDatabase } from "../lib/db.js";
+import { requireAuth } from "../lib/auth.js";
 
-module.exports = async function handler(req, res) {
+export default async function handler(req, res) {
   if (req.method !== "GET") {
     return res.status(405).json({ error: "Method not allowed." });
   }
@@ -14,52 +14,42 @@ module.exports = async function handler(req, res) {
   try {
     const { db } = await connectToDatabase();
 
-    const memberAgg = await db.collection("members").aggregate([
-      {
-        $group: {
-          _id: null,
-          member_count: { $sum: 1 },
-          total_contributions: { $sum: "$contributions" },
-          total_outstanding: { $sum: "$outstanding" },
-        },
-      },
-    ]).toArray();
+    const membersCount = await db.collection("members").countDocuments({});
+    const activeMembersCount = await db.collection("members").countDocuments({ status: "active" });
 
     const incomeAgg = await db.collection("transactions").aggregate([
       { $match: { type: "income" } },
-      {
-        $group: {
-          _id: null,
-          total_income: { $sum: "$amount" },
-        },
-      },
+      { $group: { _id: null, total: { $sum: "$amount" } } },
     ]).toArray();
 
     const expenseAgg = await db.collection("transactions").aggregate([
       { $match: { type: "expense" } },
-      {
-        $group: {
-          _id: null,
-          total_expenses: { $sum: "$amount" },
-        },
-      },
+      { $group: { _id: null, total: { $sum: "$amount" } } },
     ]).toArray();
 
+    const totalIncome = incomeAgg[0]?.total || 0;
+    const totalExpenses = expenseAgg[0]?.total || 0;
+    const fundBalance = totalIncome - totalExpenses;
+
+    const recentTransactions = await db
+      .collection("transactions")
+      .find({})
+      .sort({ date: -1 })
+      .limit(5)
+      .toArray();
+
     return res.json({
-      members: {
-        member_count: memberAgg[0]?.member_count || 0,
-        total_contributions: memberAgg[0]?.total_contributions || 0,
-        total_outstanding: memberAgg[0]?.total_outstanding || 0,
+      summary: {
+        fundBalance,
+        totalIncome,
+        totalExpenses,
+        totalMembers: membersCount,
+        activeMembers: activeMembersCount,
       },
-      income: {
-        total_income: incomeAgg[0]?.total_income || 0,
-      },
-      expenses: {
-        total_expenses: expenseAgg[0]?.total_expenses || 0,
-      },
+      recentTransactions,
     });
   } catch (error) {
     console.error(error);
     return res.status(500).json({ error: "Unable to fetch summary." });
   }
-};
+}

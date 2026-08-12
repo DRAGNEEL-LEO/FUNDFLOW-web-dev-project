@@ -2,8 +2,6 @@ import { defineConfig } from 'vite'
 import * as path from 'path'
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
-
-
 import fs from 'fs'
 
 function figmaAssetResolver() {
@@ -70,8 +68,9 @@ function apiDevServer() {
               return res;
             };
 
-            delete require.cache[require.resolve(apiFilePath)];
-            const handler = require(apiFilePath);
+            const fileUrl = `file:///${apiFilePath.replace(/\\/g, '/')}?t=${Date.now()}`;
+            const module = await import(fileUrl);
+            const handler = module.default;
             await handler(req, res);
           } catch (err: any) {
             console.error(`[API Dev Error on ${req.url}]:`, err);
@@ -96,11 +95,8 @@ export default defineConfig({
   ],
   resolve: {
     alias: {
-      // Alias @ to the src directory
       '@': path.resolve(__dirname, './src'),
     },
   },
-
-  // File types to support raw imports. Never add .css, .tsx, or .ts files to this.
   assetsInclude: ['**/*.svg', '**/*.csv'],
 })

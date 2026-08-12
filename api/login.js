@@ -1,8 +1,8 @@
-const { connectToDatabase } = require("./_lib/db");
-const { signJwt } = require("./_lib/auth");
-const bcrypt = require("bcryptjs");
+import { connectToDatabase } from "../lib/db.js";
+import { signJwt } from "../lib/auth.js";
+import bcrypt from "bcryptjs";
 
-module.exports = async function handler(req, res) {
+export default async function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed." });
   }
@@ -31,4 +31,4 @@ module.exports = async function handler(req, res) {
     console.error("Login failed:", error);
     return res.status(500).json({ error: "Login failed: " + error.message });
   }
-};
+}

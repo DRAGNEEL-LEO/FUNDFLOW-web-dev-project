@@ -1,13 +1,12 @@
-const { connectToDatabase } = require("./_lib/db");
-const { requireAuth } = require("./_lib/auth");
-const bcrypt = require("bcryptjs");
+import { connectToDatabase } from "../lib/db.js";
+import { requireAuth } from "../lib/auth.js";
+import bcrypt from "bcryptjs";
 
-module.exports = async function handler(req, res) {
+export default async function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed. Use POST." });
   }
 
-  // Only admins can create accounts
   const user = requireAuth(req);
   if (!user || user.role !== "admin") {
     return res.status(403).json({ error: "Only admins can create accounts." });
@@ -27,13 +26,11 @@ module.exports = async function handler(req, res) {
     const { db } = await connectToDatabase();
     const usersCol = db.collection("users");
 
-    // Check if email already exists
     const existing = await usersCol.findOne({ email });
     if (existing) {
       return res.status(409).json({ error: "An account with this email already exists." });
     }
 
-    // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
 
     const newUser = {
@@ -47,7 +44,6 @@ module.exports = async function handler(req, res) {
 
     await usersCol.insertOne(newUser);
 
-    // If registering a member, also add them to the members collection
     if (role === "member") {
       const membersCol = db.collection("members");
       const initials = name
@@ -79,4 +75,4 @@ module.exports = async function handler(req, res) {
     console.error("Register failed:", error);
     return res.status(500).json({ error: "Registration failed: " + error.message });
   }
-};
+}
