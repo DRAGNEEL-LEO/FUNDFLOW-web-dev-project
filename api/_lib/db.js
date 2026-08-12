@@ -1,10 +1,5 @@
 const { MongoClient } = require("mongodb");
 
-const MONGODB_URI = process.env.MONGODB_URI;
-if (!MONGODB_URI) {
-  throw new Error("MONGODB_URI environment variable is not set.");
-}
-
 let cachedClient = null;
 let cachedDb = null;
 
@@ -13,7 +8,12 @@ async function connectToDatabase() {
     return { client: cachedClient, db: cachedDb };
   }
 
-  const client = new MongoClient(MONGODB_URI);
+  const uri = process.env.MONGODB_URI;
+  if (!uri) {
+    throw new Error("MONGODB_URI environment variable is not set. Please configure it in Vercel project settings and redeploy.");
+  }
+
+  const client = new MongoClient(uri);
   await client.connect();
   const db = client.db("smartfund");
 
