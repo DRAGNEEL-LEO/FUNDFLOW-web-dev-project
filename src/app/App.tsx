@@ -937,7 +937,9 @@ function MembersView({ token }: { token: string }) {
   const [search, setSearch] = useState("");
   const [modal, setModal] = useState<"add" | "edit" | null>(null);
   const [editTarget, setEditTarget] = useState<Member | null>(null);
-  const [form, setForm] = useState({ name: "", email: "", phone: "", status: "active", password: "" });
+  const [form, setForm] = useState<{ name: string; email: string; phone: string; status: string; password: ""; role: "member" | "admin" }>({
+    name: "", email: "", phone: "", status: "active", password: "", role: "member",
+  });
   const [saving, setSaving] = useState(false);
 
   const loadMembers = useCallback(() => {
@@ -952,30 +954,53 @@ function MembersView({ token }: { token: string }) {
       m.email.toLowerCase().includes(search.toLowerCase())
     ), [members, search]);
 
-  const openAdd = () => { setForm({ name: "", email: "", phone: "", status: "active", password: "" }); setModal("add"); };
-  const openEdit = (m: Member) => { setEditTarget(m); setForm({ name: m.name, email: m.email, phone: m.phone, status: m.status, password: "" }); setModal("edit"); };
+  const openAdd = () => {
+    setForm({ name: "", email: "", phone: "", status: "active", password: "", role: "member" });
+    setModal("add");
+  };
+
+  const openAddAdmin = () => {
+    setForm({ name: "", email: "", phone: "", status: "active", password: "", role: "admin" });
+    setModal("add");
+  };
+
+  const openEdit = (m: Member) => {
+    setEditTarget(m);
+    setForm({ name: m.name, email: m.email, phone: m.phone, status: m.status, password: "", role: m.role || "member" });
+    setModal("edit");
+  };
 
   const handleSave = async () => {
+    if (!form.name || !form.email) return;
     setSaving(true);
     try {
       if (modal === "add") {
         const id = String(Date.now());
         const initials = form.name.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase();
-        const doc = {
-          id, name: form.name, email: form.email, phone: form.phone,
-          role: "member" as const, initials,
-          joined: new Date().toISOString().slice(0, 10),
-          status: form.status as "active" | "inactive",
-          contributions: 0, outstanding: 0,
-        };
-        // Create user account so they can log in
+
+        // 1. Create User account (Admin or Member) via /api/register
         await apiFetch("/api/register", {
           method: "POST", token,
-          body: { email: form.email, password: form.password || "password", name: form.name, role: "member", phone: form.phone },
-        }).catch(() => {
-          // If register fails (e.g. email exists), still try to add member
+          body: {
+            email: form.email,
+            password: form.password || "password",
+            name: form.name,
+            role: form.role,
+            phone: form.phone,
+          },
         });
-        await apiFetch("/api/members", { method: "POST", token, body: doc });
+
+        // 2. If member profile is also needed, add to members collection
+        if (form.role === "member") {
+          const doc = {
+            id, name: form.name, email: form.email, phone: form.phone,
+            role: "member" as const, initials,
+            joined: new Date().toISOString().slice(0, 10),
+            status: form.status as "active" | "inactive",
+            contributions: 0, outstanding: 0,
+          };
+          await apiFetch("/api/members", { method: "POST", token, body: doc }).catch(() => {});
+        }
       } else if (modal === "edit" && editTarget) {
         await apiFetch("/api/members", {
           method: "PUT", token,
@@ -1003,21 +1028,24 @@ function MembersView({ token }: { token: string }) {
           <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
           <input
             value={search} onChange={e => setSearch(e.target.value)}
-            placeholder="Search members..."
+            placeholder="Search members & admins..."
             className="w-full pl-9 pr-3 py-2.5 rounded-lg border border-border bg-card text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
           />
         </div>
-        <Btn onClick={openAdd}><Plus size={15} /> Add Member</Btn>
+        <div className="flex items-center gap-2">
+          <Btn onClick={openAddAdmin} variant="secondary"><Shield size={15} /> Add Admin</Btn>
+          <Btn onClick={openAdd}><Plus size={15} /> Add Member</Btn>
+        </div>
       </div>
 
       <div className="grid grid-cols-3 gap-4">
         <div className="bg-card rounded-2xl p-4 border border-border text-center">
           <p className="text-2xl font-semibold font-mono">{members.filter(m => m.status === "active").length}</p>
-          <p className="text-xs text-muted-foreground mt-1">Active</p>
+          <p className="text-xs text-muted-foreground mt-1">Active Members</p>
         </div>
         <div className="bg-card rounded-2xl p-4 border border-border text-center">
           <p className="text-2xl font-semibold font-mono">{members.filter(m => m.status === "inactive").length}</p>
-          <p className="text-xs text-muted-foreground mt-1">Inactive</p>
+          <p className="text-xs text-muted-foreground mt-1">Inactive Members</p>
         </div>
         <div className="bg-card rounded-2xl p-4 border border-border text-center">
           <p className="text-2xl font-semibold font-mono text-amber-700">
@@ -1077,13 +1105,17 @@ function MembersView({ token }: { token: string }) {
         </div>
       </div>
 
-      <Modal open={modal !== null} onClose={() => setModal(null)} title={modal === "add" ? "Add New Member" : "Edit Member"}>
+      <Modal open={modal !== null} onClose={() => setModal(null)} title={modal === "add" ? (form.role === "admin" ? "Add New Organization Admin" : "Add New Member") : "Edit Member"}>
         <div className="flex flex-col gap-4">
-          <Input label="Full Name" value={form.name} onChange={v => setForm(f => ({ ...f, name: v }))} placeholder="e.g. Amara Nwosu" />
-          <Input label="Email Address" value={form.email} onChange={v => setForm(f => ({ ...f, email: v }))} type="email" placeholder="member@example.com" />
-          <Input label="Phone Number" value={form.phone} onChange={v => setForm(f => ({ ...f, phone: v }))} placeholder="+234 800 000 0000" />
+          <Input label="Full Name" value={form.name} onChange={v => setForm(f => ({ ...f, name: v }))} placeholder="e.g. Admin Adeyemi" />
+          <Input label="Email Address" value={form.email} onChange={v => setForm(f => ({ ...f, email: v }))} type="email" placeholder="user@example.com" />
+          <Input label="Phone Number" value={form.phone} onChange={v => setForm(f => ({ ...f, phone: v }))} placeholder="+880 1700 000000" />
           {modal === "add" && (
-            <Input label="Login Password" value={form.password} onChange={v => setForm(f => ({ ...f, password: v }))} type="password" placeholder="Set a password for this member" />
+            <>
+              <Input label="Login Password" value={form.password} onChange={v => setForm(f => ({ ...f, password: v }))} type="password" placeholder="Set initial password" />
+              <Select label="Account Role" value={form.role} onChange={v => setForm(f => ({ ...f, role: v as "member" | "admin" }))}
+                options={[{ value: "member", label: "Member (Standard Access)" }, { value: "admin", label: "Admin (Executive / Full Access)" }]} />
+            </>
           )}
           <Select label="Status" value={form.status} onChange={v => setForm(f => ({ ...f, status: v }))}
             options={[{ value: "active", label: "Active" }, { value: "inactive", label: "Inactive" }]} />
