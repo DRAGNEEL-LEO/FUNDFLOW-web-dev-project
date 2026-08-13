@@ -1697,8 +1697,59 @@ const DEFAULT_MEMBER_STRUCTURED: StructuredAnalysis = {
   },
 };
 
+function clientSafeParseJson(raw: any): StructuredAnalysis | null {
+  if (!raw) return null;
+  if (typeof raw === "object") return raw as StructuredAnalysis;
+  let text = String(raw).trim();
+  text = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
+
+  try {
+    return JSON.parse(text);
+  } catch (e) {
+    // Continue repair
+  }
+
+  const start = text.indexOf("{");
+  if (start === -1) return null;
+
+  let end = text.lastIndexOf("}");
+  while (end > start) {
+    const candidate = text.substring(start, end + 1);
+    try {
+      return JSON.parse(candidate);
+    } catch (e) {
+      end = text.lastIndexOf("}", end - 1);
+    }
+  }
+
+  try {
+    let repaired = text;
+    const lastComma = repaired.lastIndexOf(",");
+    if (lastComma > start) {
+      repaired = repaired.substring(0, lastComma);
+    }
+    const openBraces = (repaired.match(/\{/g) || []).length;
+    const closeBraces = (repaired.match(/\}/g) || []).length;
+    for (let i = 0; i < openBraces - closeBraces; i++) {
+      repaired += "}";
+    }
+    return JSON.parse(repaired);
+  } catch (e) {
+    return null;
+  }
+}
+
 function MarkdownFallback({ text }: { text: string }) {
-  const lines = text.split("\n");
+  // If raw string starts with JSON brackets, clean up quotes and syntax characters
+  let cleanText = text.trim();
+  if (cleanText.startsWith("{") || cleanText.startsWith("[")) {
+    cleanText = cleanText
+      .replace(/["{}[\],]/g, " ")
+      .replace(/\n\s*\n/g, "\n")
+      .trim();
+  }
+
+  const lines = cleanText.split("\n");
   return (
     <div className="flex flex-col gap-3 text-sm leading-relaxed text-muted-foreground">
       {lines.map((line, idx) => {
@@ -1760,8 +1811,10 @@ function AIView({ role, token }: { role: Role; token: string }) {
       }
 
       const data = await response.json();
+      let parsedStruct = data.structured || clientSafeParseJson(data.analysis);
+
       setAnalysisText(data.analysis ?? "");
-      setStructured(data.structured ?? (role === "admin" ? DEFAULT_ADMIN_STRUCTURED : DEFAULT_MEMBER_STRUCTURED));
+      setStructured(parsedStruct || (role === "admin" ? DEFAULT_ADMIN_STRUCTURED : DEFAULT_MEMBER_STRUCTURED));
       setSummary(data.summary ?? null);
       setAnalysed(true);
     } catch (err) {
@@ -1773,6 +1826,7 @@ function AIView({ role, token }: { role: Role; token: string }) {
       setLoading(false);
     }
   };
+
 
   const currentStructured = structured || (role === "admin" ? DEFAULT_ADMIN_STRUCTURED : DEFAULT_MEMBER_STRUCTURED);
   const health = currentStructured.healthScore || DEFAULT_ADMIN_STRUCTURED.healthScore!;

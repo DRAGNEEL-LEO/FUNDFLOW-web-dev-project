@@ -15,7 +15,7 @@ async function requestGemini(prompt) {
       contents: [{ parts: [{ text: prompt }] }],
       generationConfig: {
         temperature: 0.2,
-        maxOutputTokens: 2048,
+        maxOutputTokens: 8192,
         responseMimeType: "application/json",
       },
     }),
@@ -45,7 +45,7 @@ async function requestOpenAI(prompt) {
       messages: [{ role: "user", content: prompt }],
       response_format: { type: "json_object" },
       temperature: 0.2,
-      max_tokens: 1500,
+      max_tokens: 4096,
     }),
   });
 
@@ -62,6 +62,87 @@ async function generateFinancialAnalysis(prompt) {
   if (process.env.GEMINI_API_KEY) return requestGemini(prompt);
   if (process.env.OPENAI_API_KEY) return requestOpenAI(prompt);
   return null;
+}
+
+function safeParseJson(raw) {
+  if (!raw) return null;
+  let text = String(raw).trim();
+  text = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
+
+  // Direct parse
+  try {
+    return JSON.parse(text);
+  } catch (e) {
+    // Continue repair
+  }
+
+  const start = text.indexOf("{");
+  if (start === -1) return null;
+
+  // Try parsing backwards from last '}'
+  let end = text.lastIndexOf("}");
+  while (end > start) {
+    const candidate = text.substring(start, end + 1);
+    try {
+      return JSON.parse(candidate);
+    } catch (e) {
+      end = text.lastIndexOf("}", end - 1);
+    }
+  }
+
+  // Fallback: repair missing closing braces
+  try {
+    let repaired = text;
+    const lastComma = repaired.lastIndexOf(",");
+    if (lastComma > start) {
+      repaired = repaired.substring(0, lastComma);
+    }
+    const openBraces = (repaired.match(/\{/g) || []).length;
+    const closeBraces = (repaired.match(/\}/g) || []).length;
+    for (let i = 0; i < openBraces - closeBraces; i++) {
+      repaired += "}";
+    }
+    return JSON.parse(repaired);
+  } catch (e) {
+    return null;
+  }
+}
+
+function formatStructuredAsText(structured) {
+  if (!structured) return "";
+  const parts = [];
+
+  if (structured.healthScore) {
+    parts.push(`### Financial Health Score: ${structured.healthScore.score}/100 (${structured.healthScore.label})`);
+    if (structured.healthScore.factors) {
+      structured.healthScore.factors.forEach((f) => {
+        parts.push(`- ${f.name}: ${f.score}%`);
+      });
+    }
+  }
+
+  if (structured.riskMatrix && structured.riskMatrix.length > 0) {
+    parts.push("\n### Identified Risks & Mitigations");
+    structured.riskMatrix.forEach((r) => {
+      parts.push(`- **${r.risk}** (${r.severity.toUpperCase()}): ${r.impact}. *Mitigation*: ${r.mitigation}`);
+    });
+  }
+
+  if (structured.spendingTrends) {
+    parts.push("\n### Spending Trends");
+    if (structured.spendingTrends.insights) {
+      structured.spendingTrends.insights.forEach((ins) => parts.push(`- ${ins}`));
+    }
+  }
+
+  if (structured.recommendations && structured.recommendations.length > 0) {
+    parts.push("\n### Key Strategic Recommendations");
+    structured.recommendations.forEach((rec) => {
+      parts.push(`- **${rec.title}** (${rec.priority.toUpperCase()}): ${rec.description}`);
+    });
+  }
+
+  return parts.join("\n");
 }
 
 export default async function handler(req, res) {
@@ -143,7 +224,7 @@ CURRENT DATABASE METRICS:
 - Expense Categories Breakdown: ${JSON.stringify(categoryAgg.map(c => ({ category: c._id, total: c.total })))}
 ${currentMember ? `- Target Member (${currentMember.name}): Contributions=Tk ${currentMember.contributions}, Outstanding=Tk ${currentMember.outstanding}, Status=${currentMember.status}` : ''}
 
-You MUST return strictly valid JSON matching this exact JSON schema (no markdown, no additional commentary):
+You MUST return strictly valid JSON matching this exact JSON schema (no markdown formatting, no plain text):
 
 {
   "healthScore": {
@@ -174,14 +255,13 @@ You MUST return strictly valid JSON matching this exact JSON schema (no markdown
   "revenueDiversification": {
     "sources": [
       { "name": "Monthly Contribution", "percent": 55, "trend": "stable" },
-      { "name": "Sponsorship", "percent": 25, "trend": "growing" },
-      { "name": "Donation", "percent": 20, "trend": "declining" }
+      { "name": "Sponsorship", "percent": 25, "trend": "growing" }
     ],
     "diversificationScore": 75,
     "insight": "Diversification insight description"
   },
   "cashFlow": {
-    "insights": ["Cash flow point 1", "Cash flow point 2"],
+    "insights": ["Cash flow point 1"],
     "monthlyAvgSurplus": 145000,
     "consecutivePositiveMonths": 6,
     "runwayMonths": 4.5
@@ -219,26 +299,20 @@ You MUST return strictly valid JSON matching this exact JSON schema (no markdown
     "percentile": 85.0,
     "contributionTrend": "consistent",
     "personalRecommendations": [
-      { "icon": "check", "text": "Personal recommendation 1" },
-      { "icon": "target", "text": "Personal recommendation 2" }
+      { "icon": "check", "text": "Personal recommendation 1" }
     ]
   }
 }`;
 
     const rawResponse = await generateFinancialAnalysis(prompt);
 
-    let structured = null;
+    let structured = safeParseJson(rawResponse);
     let analysisText = "";
 
-    if (rawResponse) {
+    if (structured) {
+      analysisText = formatStructuredAsText(structured);
+    } else if (rawResponse) {
       analysisText = rawResponse;
-      try {
-        // Try parsing directly or extract from ```json block
-        const cleaned = rawResponse.replace(/```json/g, "").replace(/```/g, "").trim();
-        structured = JSON.parse(cleaned);
-      } catch (err) {
-        console.warn("Failed to parse AI JSON response, falling back to raw text:", err);
-      }
     }
 
     return res.json({
@@ -255,4 +329,5 @@ You MUST return strictly valid JSON matching this exact JSON schema (no markdown
     return res.status(500).json({ error: error.message || "Unable to generate analysis." });
   }
 }
+
 
