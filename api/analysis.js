@@ -13,7 +13,11 @@ async function requestGemini(prompt) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: { temperature: 0.2, maxOutputTokens: 2048 },
+      generationConfig: {
+        temperature: 0.2,
+        maxOutputTokens: 2048,
+        responseMimeType: "application/json",
+      },
     }),
   });
 
@@ -39,8 +43,9 @@ async function requestOpenAI(prompt) {
     body: JSON.stringify({
       model: process.env.OPENAI_MODEL || "gpt-4o-mini",
       messages: [{ role: "user", content: prompt }],
+      response_format: { type: "json_object" },
       temperature: 0.2,
-      max_tokens: 700,
+      max_tokens: 1500,
     }),
   });
 
@@ -56,7 +61,7 @@ async function requestOpenAI(prompt) {
 async function generateFinancialAnalysis(prompt) {
   if (process.env.GEMINI_API_KEY) return requestGemini(prompt);
   if (process.env.OPENAI_API_KEY) return requestOpenAI(prompt);
-  return "No Gemini or OpenAI API key configured. Set GEMINI_API_KEY or OPENAI_API_KEY in your environment variables.";
+  return null;
 }
 
 export default async function handler(req, res) {
@@ -71,7 +76,7 @@ export default async function handler(req, res) {
 
   try {
     const { db } = await connectToDatabase();
-    const role = req.body?.role || "admin";
+    const role = req.body?.role || user.role || "admin";
     const timePeriod = req.body?.timePeriod || "last 6 months";
 
     const memberAgg = await db.collection("members").aggregate([
@@ -81,6 +86,7 @@ export default async function handler(req, res) {
           total_members: { $sum: 1 },
           total_contributions: { $sum: "$contributions" },
           total_outstanding: { $sum: "$outstanding" },
+          active_members: { $sum: { $cond: [{ $eq: ["$status", "active"] }, 1, 0] } },
         },
       },
     ]).toArray();
@@ -111,27 +117,133 @@ export default async function handler(req, res) {
       },
     ]).toArray();
 
-    const members = memberAgg[0] || { total_members: 0, total_contributions: 0, total_outstanding: 0 };
+    const categoryAgg = await db.collection("transactions").aggregate([
+      { $match: { type: "expense" } },
+      { $group: { _id: "$category", total: { $sum: "$amount" } } },
+      { $sort: { total: -1 } },
+    ]).toArray();
+
+    const members = memberAgg[0] || { total_members: 0, total_contributions: 0, total_outstanding: 0, active_members: 0 };
     const income = incomeAgg[0] || { total_income: 0, income_count: 0 };
     const expenses = expenseAgg[0] || { total_expenses: 0, expense_count: 0 };
+    const fundBalance = income.total_income - expenses.total_expenses;
 
-    const prompt = `You are a financial analytics assistant for a fund management system.
-Provide a concise ${role === "admin" ? "board-level" : "member-level"} summary of the current fund status for ${timePeriod}.
+    const currentMember = await db.collection("members").findOne({ email: user.email });
 
-Key data:
-- total members: ${members.total_members}
-- total contributions: ${members.total_contributions}
-- total outstanding: ${members.total_outstanding}
-- recent income sum: ${income.total_income}
-- number of income records: ${income.income_count}
-- recent expense sum: ${expenses.total_expenses}
-- number of expense records: ${expenses.expense_count}
+    const prompt = `You are an expert AI financial analytics engine for the Smart Fund Management System.
+Generate a comprehensive, structured financial analysis for ${role === "admin" ? "executive leadership/board" : "member " + (user.name || user.email)} for time period "${timePeriod}".
 
-Highlight trends, risk areas, savings, and recommendations for improving fund health. Use clear headings and bullet points.`;
+CURRENT DATABASE METRICS:
+- Total Members: ${members.total_members} (${members.active_members} active)
+- Total Member Contributions: Tk ${members.total_contributions}
+- Total Outstanding Balance: Tk ${members.total_outstanding}
+- Total Fund Income (Recent): Tk ${income.total_income} (${income.income_count} transactions)
+- Total Fund Expenses (Recent): Tk ${expenses.total_expenses} (${expenses.expense_count} transactions)
+- Net Fund Balance: Tk ${fundBalance}
+- Expense Categories Breakdown: ${JSON.stringify(categoryAgg.map(c => ({ category: c._id, total: c.total })))}
+${currentMember ? `- Target Member (${currentMember.name}): Contributions=Tk ${currentMember.contributions}, Outstanding=Tk ${currentMember.outstanding}, Status=${currentMember.status}` : ''}
 
-    const analysis = await generateFinancialAnalysis(prompt);
+You MUST return strictly valid JSON matching this exact JSON schema (no markdown, no additional commentary):
+
+{
+  "healthScore": {
+    "score": 82,
+    "label": "Strong | Good | Moderate | At Risk",
+    "factors": [
+      { "name": "Income Stability", "score": 85 },
+      { "name": "Expense Ratio", "score": 75 },
+      { "name": "Reserve Coverage", "score": 70 },
+      { "name": "Collection Rate", "score": 92 }
+    ]
+  },
+  "riskMatrix": [
+    {
+      "risk": "Risk summary description",
+      "severity": "high | medium | low",
+      "impact": "Quantified impact (e.g. Tk 45,000 pending)",
+      "mitigation": "Recommended action step"
+    }
+  ],
+  "spendingTrends": {
+    "insights": ["Insight point 1", "Insight point 2"],
+    "topCategory": "Category Name",
+    "topCategoryPercent": 32.5,
+    "monthOverMonthChange": 4.2,
+    "trend": "increasing | decreasing | stable"
+  },
+  "revenueDiversification": {
+    "sources": [
+      { "name": "Monthly Contribution", "percent": 55, "trend": "stable" },
+      { "name": "Sponsorship", "percent": 25, "trend": "growing" },
+      { "name": "Donation", "percent": 20, "trend": "declining" }
+    ],
+    "diversificationScore": 75,
+    "insight": "Diversification insight description"
+  },
+  "cashFlow": {
+    "insights": ["Cash flow point 1", "Cash flow point 2"],
+    "monthlyAvgSurplus": 145000,
+    "consecutivePositiveMonths": 6,
+    "runwayMonths": 4.5
+  },
+  "forecast": {
+    "currentBalance": ${fundBalance},
+    "predicted30Day": ${Math.round(fundBalance * 1.08)},
+    "predicted90Day": ${Math.round(fundBalance * 1.25)},
+    "growthPercent30": 8.0,
+    "growthPercent90": 25.0,
+    "confidence": 86,
+    "scenarioBest": ${Math.round(fundBalance * 1.35)},
+    "scenarioWorst": ${Math.round(fundBalance * 0.95)}
+  },
+  "anomalies": [
+    {
+      "type": "spike | pattern | deviation",
+      "description": "Anomaly description",
+      "severity": "warning | info | danger"
+    }
+  ],
+  "recommendations": [
+    {
+      "priority": "high | medium | low",
+      "title": "Action Title",
+      "description": "Actionable description",
+      "estimatedImpact": "Estimated impact summary"
+    }
+  ],
+  "memberAnalysis": {
+    "totalContributions": ${currentMember ? currentMember.contributions : members.total_contributions},
+    "outstandingBalance": ${currentMember ? currentMember.outstanding : members.total_outstanding},
+    "rank": 2,
+    "totalMembers": ${members.total_members},
+    "percentile": 85.0,
+    "contributionTrend": "consistent",
+    "personalRecommendations": [
+      { "icon": "check", "text": "Personal recommendation 1" },
+      { "icon": "target", "text": "Personal recommendation 2" }
+    ]
+  }
+}`;
+
+    const rawResponse = await generateFinancialAnalysis(prompt);
+
+    let structured = null;
+    let analysisText = "";
+
+    if (rawResponse) {
+      analysisText = rawResponse;
+      try {
+        // Try parsing directly or extract from ```json block
+        const cleaned = rawResponse.replace(/```json/g, "").replace(/```/g, "").trim();
+        structured = JSON.parse(cleaned);
+      } catch (err) {
+        console.warn("Failed to parse AI JSON response, falling back to raw text:", err);
+      }
+    }
+
     return res.json({
-      analysis,
+      analysis: analysisText,
+      structured,
       summary: {
         members: { total_members: members.total_members, total_contributions: String(members.total_contributions), total_outstanding: String(members.total_outstanding) },
         income: { total_income: String(income.total_income), income_count: income.income_count },
@@ -139,7 +251,8 @@ Highlight trends, risk areas, savings, and recommendations for improving fund he
       },
     });
   } catch (error) {
-    console.error(error);
+    console.error("Analysis API error:", error);
     return res.status(500).json({ error: error.message || "Unable to generate analysis." });
   }
 }
+
