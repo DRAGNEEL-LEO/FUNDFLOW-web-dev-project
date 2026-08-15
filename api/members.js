@@ -1,5 +1,6 @@
 import { connectToDatabase } from "../lib/db.js";
 import { requireAuth } from "../lib/auth.js";
+import { validateMemberPayload } from "../lib/validation.js";
 
 export default async function handler(req, res) {
   const user = requireAuth(req);
@@ -21,6 +22,14 @@ export default async function handler(req, res) {
   }
 
   if (req.method === "POST") {
+    const validation = validateMemberPayload(req.body || {}, false);
+    if (!validation.isValid) {
+      return res.status(400).json({
+        error: "Validation failed.",
+        details: validation.errors,
+      });
+    }
+
     try {
       const { id, name, email, role, initials, joined, status, contributions, outstanding, phone } = req.body || {};
       const doc = { id, name, email, role, initials, joined, status, contributions, outstanding, phone };
@@ -33,6 +42,14 @@ export default async function handler(req, res) {
   }
 
   if (req.method === "PUT") {
+    const validation = validateMemberPayload(req.body || {}, true);
+    if (!validation.isValid) {
+      return res.status(400).json({
+        error: "Validation failed.",
+        details: validation.errors,
+      });
+    }
+
     try {
       const { id, name, email, phone, status, contributions, outstanding } = req.body || {};
       if (!id) return res.status(400).json({ error: "id is required." });

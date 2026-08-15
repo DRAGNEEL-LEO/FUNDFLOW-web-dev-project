@@ -22,9 +22,10 @@
 
     /* Path aliases */
     "baseUrl": ".",
+    "allowJs": true,
     "paths": {
       "@/*": ["./src/*"]
     }
   },
-  "include": ["src"]
+  "include": ["src", "lib"]
 }

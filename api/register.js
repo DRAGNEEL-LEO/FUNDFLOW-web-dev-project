@@ -1,5 +1,6 @@
 import { connectToDatabase } from "../lib/db.js";
 import { requireAuth } from "../lib/auth.js";
+import { validateRegisterPayload } from "../lib/validation.js";
 import bcrypt from "bcryptjs";
 
 export default async function handler(req, res) {
@@ -12,15 +13,15 @@ export default async function handler(req, res) {
     return res.status(403).json({ error: "Only admins can create accounts." });
   }
 
+  const validation = validateRegisterPayload(req.body || {});
+  if (!validation.isValid) {
+    return res.status(400).json({
+      error: "Validation failed.",
+      details: validation.errors,
+    });
+  }
+
   const { email, password, name, role, phone } = req.body || {};
-
-  if (!email || !password || !name || !role) {
-    return res.status(400).json({ error: "email, password, name, and role are required." });
-  }
-
-  if (!["admin", "member"].includes(role)) {
-    return res.status(400).json({ error: "role must be 'admin' or 'member'." });
-  }
 
   try {
     const { db } = await connectToDatabase();

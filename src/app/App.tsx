@@ -1,6 +1,13 @@
 import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { apiFetch, getStoredAuth, storeAuth, clearAuth } from "./api";
 import {
+  validateLoginPayload,
+  validateRegisterPayload,
+  validateTransactionPayload,
+  validateMemberPayload,
+  validateAnnouncementPayload,
+} from "../../lib/validation.js";
+import {
   LayoutDashboard, Users, TrendingUp, TrendingDown, BarChart2,
   Bell, Sparkles, LogOut, Search, Plus, ArrowUpRight, ArrowDownRight,
   Edit2, Trash2, X, Download, Wallet, Menu,
@@ -179,9 +186,9 @@ function Modal({ open, onClose, title, children }: {
   );
 }
 
-function Input({ label, value, onChange, type = "text", placeholder }: {
+function Input({ label, value, onChange, type = "text", placeholder, error }: {
   label: string; value: string; onChange: (v: string) => void;
-  type?: string; placeholder?: string;
+  type?: string; placeholder?: string; error?: string;
 }) {
   return (
     <div className="flex flex-col gap-1.5">
@@ -191,8 +198,16 @@ function Input({ label, value, onChange, type = "text", placeholder }: {
         value={value}
         placeholder={placeholder}
         onChange={e => onChange(e.target.value)}
-        className="px-3 py-2.5 rounded-lg border border-border bg-input-background text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent transition-all"
+        className={cn(
+          "px-3 py-2.5 rounded-lg border bg-input-background text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 transition-all",
+          error ? "border-red-500 focus:ring-red-500" : "border-border focus:ring-ring focus:border-transparent"
+        )}
       />
+      {error && (
+        <p className="text-xs text-red-500 flex items-center gap-1 mt-0.5 font-medium">
+          <AlertCircle size={12} /> {error}
+        </p>
+      )}
     </div>
   );
 }
@@ -499,10 +514,17 @@ function LoginView({ onLogin, onBack }: { onLogin: (role: Role, token: string, n
   const [email, setEmail] = useState("admin@fundflow.org");
   const [password, setPassword] = useState("password");
   const [error, setError] = useState("");
+  const [fieldErrors, setFieldErrors] = useState<{ email?: string; password?: string }>({});
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async () => {
-    if (!email || !password) { setError("Please fill in all fields."); return; }
+    const val = validateLoginPayload({ email, password });
+    if (!val.isValid) {
+      setFieldErrors(val.errors);
+      setError("Please resolve the input errors below.");
+      return;
+    }
+    setFieldErrors({});
     setLoading(true); setError("");
     try {
       const data = await apiFetch<{ token: string; role: Role; name: string; email: string }>("/api/login", {
@@ -510,7 +532,10 @@ function LoginView({ onLogin, onBack }: { onLogin: (role: Role, token: string, n
       });
       storeAuth({ token: data.token, role: data.role, name: data.name, email: data.email });
       onLogin(data.role, data.token, data.name, data.email);
-    } catch (err) {
+    } catch (err: any) {
+      if (err?.details) {
+        setFieldErrors(err.details);
+      }
       setError(err instanceof Error ? err.message : "Login failed.");
     } finally { setLoading(false); }
   };
@@ -571,8 +596,8 @@ function LoginView({ onLogin, onBack }: { onLogin: (role: Role, token: string, n
           <p className="text-muted-foreground text-sm mb-8">Sign in to your account to continue</p>
 
           <div className="flex flex-col gap-4">
-            <Input label="Email address" value={email} onChange={setEmail} type="email" placeholder="you@fundflow.org" />
-            <Input label="Password" value={password} onChange={setPassword} type="password" placeholder="••••••••" />
+            <Input label="Email address" value={email} onChange={setEmail} type="email" placeholder="you@fundflow.org" error={fieldErrors.email} />
+            <Input label="Password" value={password} onChange={setPassword} type="password" placeholder="••••••••" error={fieldErrors.password} />
             {error && (
               <div className="flex items-center gap-2 p-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm">
                 <AlertCircle size={14} /> {error}
@@ -937,9 +962,10 @@ function MembersView({ token }: { token: string }) {
   const [search, setSearch] = useState("");
   const [modal, setModal] = useState<"add" | "edit" | null>(null);
   const [editTarget, setEditTarget] = useState<Member | null>(null);
-  const [form, setForm] = useState<{ name: string; email: string; phone: string; status: string; password: ""; role: "member" | "admin" }>({
+  const [form, setForm] = useState<{ name: string; email: string; phone: string; status: string; password: string; role: "member" | "admin" }>({
     name: "", email: "", phone: "", status: "active", password: "", role: "member",
   });
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
 
   const loadMembers = useCallback(() => {
@@ -956,22 +982,42 @@ function MembersView({ token }: { token: string }) {
 
   const openAdd = () => {
     setForm({ name: "", email: "", phone: "", status: "active", password: "", role: "member" });
+    setFieldErrors({});
     setModal("add");
   };
 
   const openAddAdmin = () => {
     setForm({ name: "", email: "", phone: "", status: "active", password: "", role: "admin" });
+    setFieldErrors({});
     setModal("add");
   };
 
   const openEdit = (m: Member) => {
     setEditTarget(m);
     setForm({ name: m.name, email: m.email, phone: m.phone, status: m.status, password: "", role: m.role || "member" });
+    setFieldErrors({});
     setModal("edit");
   };
 
   const handleSave = async () => {
-    if (!form.name || !form.email) return;
+    let val;
+    if (modal === "add") {
+      val = validateRegisterPayload({
+        name: form.name, email: form.email, password: form.password || "password",
+        role: form.role, phone: form.phone
+      });
+    } else {
+      val = validateMemberPayload({
+        name: form.name, email: form.email, phone: form.phone, status: form.status
+      }, true);
+    }
+
+    if (!val.isValid) {
+      setFieldErrors(val.errors as Record<string, string>);
+      return;
+    }
+    setFieldErrors({});
+
     setSaving(true);
     try {
       if (modal === "add") {
@@ -1009,7 +1055,10 @@ function MembersView({ token }: { token: string }) {
       }
       loadMembers();
       setModal(null);
-    } catch (err) {
+    } catch (err: any) {
+      if (err?.details) {
+        setFieldErrors(err.details);
+      }
       console.error("Save failed:", err);
     } finally { setSaving(false); }
   };
@@ -1107,12 +1156,12 @@ function MembersView({ token }: { token: string }) {
 
       <Modal open={modal !== null} onClose={() => setModal(null)} title={modal === "add" ? (form.role === "admin" ? "Add New Organization Admin" : "Add New Member") : "Edit Member"}>
         <div className="flex flex-col gap-4">
-          <Input label="Full Name" value={form.name} onChange={v => setForm(f => ({ ...f, name: v }))} placeholder="e.g. Admin Adeyemi" />
-          <Input label="Email Address" value={form.email} onChange={v => setForm(f => ({ ...f, email: v }))} type="email" placeholder="user@example.com" />
-          <Input label="Phone Number" value={form.phone} onChange={v => setForm(f => ({ ...f, phone: v }))} placeholder="+880 1700 000000" />
+          <Input label="Full Name" value={form.name} onChange={v => setForm(f => ({ ...f, name: v }))} placeholder="e.g. Admin Adeyemi" error={fieldErrors.name} />
+          <Input label="Email Address" value={form.email} onChange={v => setForm(f => ({ ...f, email: v }))} type="email" placeholder="user@example.com" error={fieldErrors.email} />
+          <Input label="Phone Number" value={form.phone} onChange={v => setForm(f => ({ ...f, phone: v }))} placeholder="+880 1700 000000" error={fieldErrors.phone} />
           {modal === "add" && (
             <>
-              <Input label="Login Password" value={form.password} onChange={v => setForm(f => ({ ...f, password: v }))} type="password" placeholder="Set initial password" />
+              <Input label="Login Password" value={form.password} onChange={v => setForm(f => ({ ...f, password: v }))} type="password" placeholder="Set initial password" error={fieldErrors.password} />
               <Select label="Account Role" value={form.role} onChange={v => setForm(f => ({ ...f, role: v as "member" | "admin" }))}
                 options={[{ value: "member", label: "Member (Standard Access)" }, { value: "admin", label: "Admin (Executive / Full Access)" }]} />
             </>
@@ -1136,6 +1185,7 @@ function IncomeView({ token }: { token: string }) {
   const [txs, setTxs] = useState<Transaction[]>([]);
   const [modal, setModal] = useState(false);
   const [form, setForm] = useState({ description: "", amount: "", category: "Monthly Contribution", date: "" });
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
   const loadTxs = useCallback(() => {
     apiFetch<Transaction[]>("/api/transactions", { token }).then(data => setTxs(data.filter(t => t.type === "income"))).catch(() => {});
@@ -1146,7 +1196,15 @@ function IncomeView({ token }: { token: string }) {
   const total = txs.reduce((s, t) => s + t.amount, 0);
 
   const handleAdd = async () => {
-    if (!form.description || !form.amount || !form.date) return;
+    const val = validateTransactionPayload({
+      type: "income", category: form.category, amount: form.amount, description: form.description, date: form.date
+    });
+    if (!val.isValid) {
+      setFieldErrors(val.errors as Record<string, string>);
+      return;
+    }
+    setFieldErrors({});
+
     const doc = {
       id: String(Date.now()), type: "income" as const, category: form.category,
       amount: Number(form.amount), description: form.description,
@@ -1155,7 +1213,11 @@ function IncomeView({ token }: { token: string }) {
     try {
       await apiFetch("/api/transactions", { method: "POST", token, body: doc });
       loadTxs();
-    } catch (err) { console.error(err); }
+    } catch (err: any) {
+      if (err?.details) setFieldErrors(err.details);
+      console.error(err);
+      return;
+    }
     setModal(false);
     setForm({ description: "", amount: "", category: "Monthly Contribution", date: "" });
   };
@@ -1167,7 +1229,7 @@ function IncomeView({ token }: { token: string }) {
           <p className="text-xs text-muted-foreground">Total Income Recorded</p>
           <p className="text-2xl font-semibold font-mono text-emerald-700 mt-1">{fmt(total)}</p>
         </div>
-        <Btn onClick={() => setModal(true)}><Plus size={15} /> Record Income</Btn>
+        <Btn onClick={() => { setFieldErrors({}); setModal(true); }}><Plus size={15} /> Record Income</Btn>
       </div>
 
       <div className="bg-card rounded-2xl border border-border overflow-hidden">
@@ -1204,11 +1266,11 @@ function IncomeView({ token }: { token: string }) {
 
       <Modal open={modal} onClose={() => setModal(false)} title="Record Income">
         <div className="flex flex-col gap-4">
-          <Input label="Description" value={form.description} onChange={v => setForm(f => ({ ...f, description: v }))} placeholder="e.g. March member contributions" />
-          <Input label="Amount (Tk)" value={form.amount} onChange={v => setForm(f => ({ ...f, amount: v }))} type="number" placeholder="0.00" />
+          <Input label="Description" value={form.description} onChange={v => setForm(f => ({ ...f, description: v }))} placeholder="e.g. March member contributions" error={fieldErrors.description} />
+          <Input label="Amount (Tk)" value={form.amount} onChange={v => setForm(f => ({ ...f, amount: v }))} type="number" placeholder="0.00" error={fieldErrors.amount} />
           <Select label="Category" value={form.category} onChange={v => setForm(f => ({ ...f, category: v }))}
             options={INCOME_CATS.map(c => ({ value: c, label: c }))} />
-          <Input label="Date" value={form.date} onChange={v => setForm(f => ({ ...f, date: v }))} type="date" />
+          <Input label="Date" value={form.date} onChange={v => setForm(f => ({ ...f, date: v }))} type="date" error={fieldErrors.date} />
           <div className="flex gap-3 mt-2">
             <Btn onClick={() => setModal(false)} variant="ghost" className="flex-1 justify-center">Cancel</Btn>
             <Btn onClick={handleAdd} className="flex-1 justify-center"><Check size={14} /> Save</Btn>
@@ -1226,6 +1288,7 @@ function ExpensesView({ token }: { token: string }) {
   const [txs, setTxs] = useState<Transaction[]>([]);
   const [modal, setModal] = useState(false);
   const [form, setForm] = useState({ description: "", amount: "", category: "Operations", date: "" });
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
   const loadTxs = useCallback(() => {
     apiFetch<Transaction[]>("/api/transactions", { token }).then(data => setTxs(data.filter(t => t.type === "expense"))).catch(() => {});
@@ -1236,7 +1299,15 @@ function ExpensesView({ token }: { token: string }) {
   const total = txs.reduce((s, t) => s + t.amount, 0);
 
   const handleAdd = async () => {
-    if (!form.description || !form.amount || !form.date) return;
+    const val = validateTransactionPayload({
+      type: "expense", category: form.category, amount: form.amount, description: form.description, date: form.date
+    });
+    if (!val.isValid) {
+      setFieldErrors(val.errors as Record<string, string>);
+      return;
+    }
+    setFieldErrors({});
+
     const doc = {
       id: String(Date.now()), type: "expense" as const, category: form.category,
       amount: Number(form.amount), description: form.description,
@@ -1245,7 +1316,11 @@ function ExpensesView({ token }: { token: string }) {
     try {
       await apiFetch("/api/transactions", { method: "POST", token, body: doc });
       loadTxs();
-    } catch (err) { console.error(err); }
+    } catch (err: any) {
+      if (err?.details) setFieldErrors(err.details);
+      console.error(err);
+      return;
+    }
     setModal(false);
     setForm({ description: "", amount: "", category: "Operations", date: "" });
   };
@@ -1264,7 +1339,7 @@ function ExpensesView({ token }: { token: string }) {
           <p className="text-xs text-muted-foreground">Total Expenses Recorded</p>
           <p className="text-2xl font-semibold font-mono text-red-600 mt-1">{fmt(total)}</p>
         </div>
-        <Btn onClick={() => setModal(true)}><Plus size={15} /> Record Expense</Btn>
+        <Btn onClick={() => { setFieldErrors({}); setModal(true); }}><Plus size={15} /> Record Expense</Btn>
       </div>
 
       <div className="bg-card rounded-2xl border border-border overflow-hidden">
@@ -1306,11 +1381,11 @@ function ExpensesView({ token }: { token: string }) {
 
       <Modal open={modal} onClose={() => setModal(false)} title="Record Expense">
         <div className="flex flex-col gap-4">
-          <Input label="Description" value={form.description} onChange={v => setForm(f => ({ ...f, description: v }))} placeholder="e.g. Office supplies" />
-          <Input label="Amount (Tk)" value={form.amount} onChange={v => setForm(f => ({ ...f, amount: v }))} type="number" placeholder="0.00" />
+          <Input label="Description" value={form.description} onChange={v => setForm(f => ({ ...f, description: v }))} placeholder="e.g. Office supplies" error={fieldErrors.description} />
+          <Input label="Amount (Tk)" value={form.amount} onChange={v => setForm(f => ({ ...f, amount: v }))} type="number" placeholder="0.00" error={fieldErrors.amount} />
           <Select label="Category" value={form.category} onChange={v => setForm(f => ({ ...f, category: v }))}
             options={EXPENSE_CATS.map(c => ({ value: c, label: c }))} />
-          <Input label="Date" value={form.date} onChange={v => setForm(f => ({ ...f, date: v }))} type="date" />
+          <Input label="Date" value={form.date} onChange={v => setForm(f => ({ ...f, date: v }))} type="date" error={fieldErrors.date} />
           <div className="flex gap-3 mt-2">
             <Btn onClick={() => setModal(false)} variant="ghost" className="flex-1 justify-center">Cancel</Btn>
             <Btn onClick={handleAdd} className="flex-1 justify-center"><Check size={14} /> Save</Btn>
@@ -1443,6 +1518,7 @@ function AnnouncementsView({ role, token }: { role: Role; token: string }) {
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [modal, setModal] = useState(false);
   const [form, setForm] = useState({ title: "", body: "", priority: "medium" });
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
   const loadAnnouncements = useCallback(() => {
     apiFetch<Announcement[]>("/api/announcements", { token }).then(setAnnouncements).catch(() => {});
@@ -1451,7 +1527,13 @@ function AnnouncementsView({ role, token }: { role: Role; token: string }) {
   useEffect(() => { loadAnnouncements(); }, [loadAnnouncements]);
 
   const handlePost = async () => {
-    if (!form.title || !form.body) return;
+    const val = validateAnnouncementPayload(form);
+    if (!val.isValid) {
+      setFieldErrors(val.errors as Record<string, string>);
+      return;
+    }
+    setFieldErrors({});
+
     const doc = {
       id: String(Date.now()), title: form.title, body: form.body,
       date: new Date().toISOString().slice(0, 10),
@@ -1461,7 +1543,11 @@ function AnnouncementsView({ role, token }: { role: Role; token: string }) {
     try {
       await apiFetch("/api/announcements", { method: "POST", token, body: doc });
       loadAnnouncements();
-    } catch (err) { console.error(err); }
+    } catch (err: any) {
+      if (err?.details) setFieldErrors(err.details);
+      console.error(err);
+      return;
+    }
     setModal(false);
     setForm({ title: "", body: "", priority: "medium" });
   };
@@ -1474,7 +1560,7 @@ function AnnouncementsView({ role, token }: { role: Role; token: string }) {
     <div className="p-6 flex flex-col gap-5" style={{ fontFamily: "Outfit, sans-serif" }}>
       {role === "admin" && (
         <div className="flex justify-end">
-          <Btn onClick={() => setModal(true)}><Plus size={15} /> Post Announcement</Btn>
+          <Btn onClick={() => { setFieldErrors({}); setModal(true); }}><Plus size={15} /> Post Announcement</Btn>
         </div>
       )}
       <div className="flex flex-col gap-4">
@@ -1495,15 +1581,23 @@ function AnnouncementsView({ role, token }: { role: Role; token: string }) {
 
       <Modal open={modal} onClose={() => setModal(false)} title="Post Announcement">
         <div className="flex flex-col gap-4">
-          <Input label="Title" value={form.title} onChange={v => setForm(f => ({ ...f, title: v }))} placeholder="Announcement title" />
+          <Input label="Title" value={form.title} onChange={v => setForm(f => ({ ...f, title: v }))} placeholder="Announcement title" error={fieldErrors.title} />
           <div className="flex flex-col gap-1.5">
             <label className="text-sm font-medium text-foreground">Message</label>
             <textarea
               value={form.body} onChange={e => setForm(f => ({ ...f, body: e.target.value }))}
               placeholder="Write your announcement here..."
               rows={4}
-              className="px-3 py-2.5 rounded-lg border border-border bg-input-background text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-none"
+              className={cn(
+                "px-3 py-2.5 rounded-lg border bg-input-background text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 resize-none transition-all",
+                fieldErrors.body ? "border-red-500 focus:ring-red-500" : "border-border focus:ring-ring"
+              )}
             />
+            {fieldErrors.body && (
+              <p className="text-xs text-red-500 flex items-center gap-1 mt-0.5 font-medium">
+                <AlertCircle size={12} /> {fieldErrors.body}
+              </p>
+            )}
           </div>
           <Select label="Priority" value={form.priority} onChange={v => setForm(f => ({ ...f, priority: v }))}
             options={[{ value: "high", label: "High" }, { value: "medium", label: "Medium" }, { value: "low", label: "Low" }]} />
@@ -1813,7 +1907,7 @@ function AIView({ role, token }: { role: Role; token: string }) {
   const [analysed, setAnalysed] = useState(false);
   const [analysisText, setAnalysisText] = useState("");
   const [structured, setStructured] = useState<StructuredAnalysis | null>(null);
-  const [summary, setSummary] = useState<{
+  const [_summary, setSummary] = useState<{
     members: { total_members: number; total_contributions: string; total_outstanding: string };
     income: { total_income: string; income_count: number };
     expenses: { total_expenses: string; expense_count: number };

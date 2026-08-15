@@ -1,5 +1,6 @@
 import { connectToDatabase } from "../lib/db.js";
 import { requireAuth } from "../lib/auth.js";
+import { validateAnnouncementPayload } from "../lib/validation.js";
 
 export default async function handler(req, res) {
   const user = requireAuth(req);
@@ -21,6 +22,14 @@ export default async function handler(req, res) {
   }
 
   if (req.method === "POST") {
+    const validation = validateAnnouncementPayload(req.body || {});
+    if (!validation.isValid) {
+      return res.status(400).json({
+        error: "Validation failed.",
+        details: validation.errors,
+      });
+    }
+
     try {
       const { id, title, body, date, priority, author } = req.body || {};
       const doc = { id, title, body, date, priority, author };
