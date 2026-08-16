@@ -14,11 +14,18 @@ import {
   Megaphone, CreditCard, AlertCircle, Check,
   User, ChevronRight, Activity, Target,
   ArrowRight, Star, Lock, Shield, Settings,
+  FileText, SlidersHorizontal,
 } from "lucide-react";
 import {
   AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from "recharts";
+import {
+  exportOrganizationPDF,
+  exportIncomeReport,
+  exportExpenseReport,
+  exportMembersReport,
+} from "./utils/pdfExport";
 
 /* ─────────────────────────── TYPES ─────────────────────────── */
 type Role = "admin" | "member";
@@ -835,14 +842,379 @@ function Header({ title, subtitle, onMenuClick, profile, onEditProfile, onLogout
   );
 }
 
+/* ─────────────────────────── EXPORT REPORT MODAL ─────────────────────────── */
+interface ExportReportModalProps {
+  open: boolean;
+  onClose: () => void;
+  members: Member[];
+  transactions: Transaction[];
+  announcements?: Announcement[];
+  profile?: ProfileInfo;
+}
+
+function ExportReportModal({
+  open,
+  onClose,
+  members,
+  transactions,
+  announcements = [],
+  profile,
+}: ExportReportModalProps) {
+  const [orgName, setOrgName] = useState(profile?.organization || "FundFlow Community Trust");
+  const [reportTitle, setReportTitle] = useState("Executive Financial & Management Report");
+  const [reportSubtitle, setReportSubtitle] = useState("Comprehensive performance statement and organizational audit");
+  const [includeKPIs, setIncludeKPIs] = useState(true);
+  const [includeMonthlyTrend, setIncludeMonthlyTrend] = useState(true);
+  const [includeExpenseCategories, setIncludeExpenseCategories] = useState(true);
+  const [includeMembers, setIncludeMembers] = useState(true);
+  const [includeTransactions, setIncludeTransactions] = useState(true);
+  const [transactionLimit, setTransactionLimit] = useState<"10" | "25" | "50" | "all">("25");
+  const [includeAnnouncements, setIncludeAnnouncements] = useState(true);
+  const [includeSignatures, setIncludeSignatures] = useState(true);
+  const [exporting, setExporting] = useState(false);
+  const [success, setSuccess] = useState(false);
+
+  useEffect(() => {
+    if (profile?.organization) {
+      setOrgName(profile.organization);
+    }
+  }, [profile]);
+
+  if (!open) return null;
+
+  const handleFullQuickExport = () => {
+    setExporting(true);
+    setSuccess(false);
+    setTimeout(() => {
+      try {
+        exportOrganizationPDF({
+          organizationName: orgName || profile?.organization || "FundFlow Community Trust",
+          reportTitle: "Executive Financial & Management Report",
+          reportSubtitle: "Complete organizational performance and financial ledger audit",
+          generatedBy: profile?.name || "System Administrator",
+          includeKPIs: true,
+          includeMonthlyTrend: true,
+          includeExpenseCategories: true,
+          includeMembers: true,
+          includeTransactions: true,
+          transactionLimit: "all",
+          includeAnnouncements: true,
+          includeSignatures: true,
+          monthlyData: MONTHLY_DATA,
+          expensePie: EXPENSE_PIE,
+          members,
+          transactions,
+          announcements,
+        });
+        setSuccess(true);
+        setTimeout(() => {
+          setSuccess(false);
+          onClose();
+        }, 1200);
+      } catch (e) {
+        console.error("Export error:", e);
+      } finally {
+        setExporting(false);
+      }
+    }, 300);
+  };
+
+  const handleCustomExport = () => {
+    setExporting(true);
+    setSuccess(false);
+    setTimeout(() => {
+      try {
+        exportOrganizationPDF({
+          organizationName: orgName || "FundFlow Community Trust",
+          reportTitle: reportTitle || "Executive Financial & Management Report",
+          reportSubtitle: reportSubtitle || "Comprehensive performance statement and organizational audit",
+          generatedBy: profile?.name || "System Administrator",
+          includeKPIs,
+          includeMonthlyTrend,
+          includeExpenseCategories,
+          includeMembers,
+          includeTransactions,
+          transactionLimit,
+          includeAnnouncements,
+          includeSignatures,
+          monthlyData: MONTHLY_DATA,
+          expensePie: EXPENSE_PIE,
+          members,
+          transactions,
+          announcements,
+        });
+        setSuccess(true);
+        setTimeout(() => {
+          setSuccess(false);
+          onClose();
+        }, 1200);
+      } catch (e) {
+        console.error("Export error:", e);
+      } finally {
+        setExporting(false);
+      }
+    }, 300);
+  };
+
+  const totalIncome = transactions.filter(t => t.type === "income").reduce((s, t) => s + t.amount, 0);
+  const totalExpenses = transactions.filter(t => t.type === "expense").reduce((s, t) => s + t.amount, 0);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative bg-card rounded-2xl shadow-2xl w-full max-w-2xl border border-border overflow-hidden flex flex-col max-h-[90vh] animate-in">
+        {/* Modal Header */}
+        <div className="px-6 py-5 border-b border-border bg-muted/20 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-600">
+              <Download size={20} />
+            </div>
+            <div>
+              <h3 className="text-lg font-semibold text-foreground" style={{ fontFamily: "Fraunces, serif" }}>
+                Export Organization PDF Report
+              </h3>
+              <p className="text-xs text-muted-foreground">
+                Download a styled, publication-ready financial audit & organization summary
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground transition-colors cursor-pointer"
+          >
+            <X size={16} />
+          </button>
+        </div>
+
+        {/* Modal Body */}
+        <div className="p-6 overflow-y-auto flex flex-col gap-6">
+          {/* Quick 1-Click Banner */}
+          <div className="rounded-xl border border-emerald-500/30 bg-gradient-to-br from-emerald-950/80 via-slate-900 to-emerald-900/60 p-4 text-white shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <Sparkles size={16} className="text-emerald-400" />
+                <span className="text-xs font-semibold text-emerald-400 tracking-wide uppercase">
+                  Instant Executive Export
+                </span>
+              </div>
+              <p className="text-sm font-semibold text-white">Download Complete Official Audit</p>
+              <p className="text-xs text-white/70 mt-0.5">
+                Includes all KPI cards, 7-month trend, {members.length} members, and {transactions.length} transaction records.
+              </p>
+            </div>
+            <button
+              onClick={handleFullQuickExport}
+              disabled={exporting}
+              className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-semibold text-xs tracking-wide transition-all shadow-md hover:shadow-emerald-500/20 disabled:opacity-50 whitespace-nowrap cursor-pointer"
+            >
+              {exporting ? (
+                <>
+                  <div className="w-3.5 h-3.5 border-2 border-slate-950/30 border-t-slate-950 rounded-full animate-spin" />
+                  Generating...
+                </>
+              ) : success ? (
+                <>
+                  <Check size={14} /> Downloaded!
+                </>
+              ) : (
+                <>
+                  <Download size={14} /> Quick Download All
+                </>
+              )}
+            </button>
+          </div>
+
+          {/* Custom Options Header */}
+          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground border-b border-border pb-2">
+            <SlidersHorizontal size={14} />
+            <span>Customize Report Sections</span>
+          </div>
+
+          {/* Org & Title Inputs */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Input
+              label="Organization Name"
+              value={orgName}
+              onChange={setOrgName}
+              placeholder="Organization Name"
+            />
+            <Input
+              label="Report Document Title"
+              value={reportTitle}
+              onChange={setReportTitle}
+              placeholder="e.g. Annual Executive Report"
+            />
+            <div className="sm:col-span-2">
+              <Input
+                label="Report Subtitle / Statement"
+                value={reportSubtitle}
+                onChange={setReportSubtitle}
+                placeholder="e.g. Comprehensive performance statement and organizational audit"
+              />
+            </div>
+          </div>
+
+          {/* Section Selection Toggles */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <label className="flex items-start gap-3 p-3 rounded-xl border border-border bg-card hover:bg-muted/30 transition-colors cursor-pointer">
+              <input
+                type="checkbox"
+                checked={includeKPIs}
+                onChange={e => setIncludeKPIs(e.target.checked)}
+                className="mt-1 rounded text-emerald-600 focus:ring-emerald-500"
+              />
+              <div className="text-xs">
+                <p className="font-medium text-foreground">Financial Health & KPI Cards</p>
+                <p className="text-muted-foreground mt-0.5">Net balance ({fmt(totalIncome - totalExpenses)}), revenue, dues</p>
+              </div>
+            </label>
+
+            <label className="flex items-start gap-3 p-3 rounded-xl border border-border bg-card hover:bg-muted/30 transition-colors cursor-pointer">
+              <input
+                type="checkbox"
+                checked={includeMonthlyTrend}
+                onChange={e => setIncludeMonthlyTrend(e.target.checked)}
+                className="mt-1 rounded text-emerald-600 focus:ring-emerald-500"
+              />
+              <div className="text-xs">
+                <p className="font-medium text-foreground">7-Month Monthly Trend Table</p>
+                <p className="text-muted-foreground mt-0.5">Inflows, outflows, and net margin %</p>
+              </div>
+            </label>
+
+            <label className="flex items-start gap-3 p-3 rounded-xl border border-border bg-card hover:bg-muted/30 transition-colors cursor-pointer">
+              <input
+                type="checkbox"
+                checked={includeExpenseCategories}
+                onChange={e => setIncludeExpenseCategories(e.target.checked)}
+                className="mt-1 rounded text-emerald-600 focus:ring-emerald-500"
+              />
+              <div className="text-xs">
+                <p className="font-medium text-foreground">Expense Category Breakdown</p>
+                <p className="text-muted-foreground mt-0.5">Operations, welfare, education allocations</p>
+              </div>
+            </label>
+
+            <label className="flex items-start gap-3 p-3 rounded-xl border border-border bg-card hover:bg-muted/30 transition-colors cursor-pointer">
+              <input
+                type="checkbox"
+                checked={includeMembers}
+                onChange={e => setIncludeMembers(e.target.checked)}
+                className="mt-1 rounded text-emerald-600 focus:ring-emerald-500"
+              />
+              <div className="text-xs">
+                <p className="font-medium text-foreground">Member Directory & Ledger</p>
+                <p className="text-muted-foreground mt-0.5">{members.length} registered members & dues status</p>
+              </div>
+            </label>
+
+            <div className="p-3 rounded-xl border border-border bg-card flex flex-col gap-2">
+              <label className="flex items-start gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={includeTransactions}
+                  onChange={e => setIncludeTransactions(e.target.checked)}
+                  className="mt-1 rounded text-emerald-600 focus:ring-emerald-500"
+                />
+                <div className="text-xs">
+                  <p className="font-medium text-foreground">Transaction History Ledger</p>
+                  <p className="text-muted-foreground mt-0.5">{transactions.length} total receipts & disbursements</p>
+                </div>
+              </label>
+              {includeTransactions && (
+                <div className="pl-7 flex items-center gap-2">
+                  <span className="text-[11px] text-muted-foreground">Rows to include:</span>
+                  <select
+                    value={transactionLimit}
+                    onChange={e => setTransactionLimit(e.target.value as any)}
+                    className="px-2 py-1 text-xs rounded border border-border bg-input-background text-foreground"
+                  >
+                    <option value="10">Last 10 Records</option>
+                    <option value="25">Last 25 Records</option>
+                    <option value="50">Last 50 Records</option>
+                    <option value="all">All Records ({transactions.length})</option>
+                  </select>
+                </div>
+              )}
+            </div>
+
+            <label className="flex items-start gap-3 p-3 rounded-xl border border-border bg-card hover:bg-muted/30 transition-colors cursor-pointer">
+              <input
+                type="checkbox"
+                checked={includeAnnouncements}
+                onChange={e => setIncludeAnnouncements(e.target.checked)}
+                className="mt-1 rounded text-emerald-600 focus:ring-emerald-500"
+              />
+              <div className="text-xs">
+                <p className="font-medium text-foreground">Executive Announcements</p>
+                <p className="text-muted-foreground mt-0.5">Notices, meeting minutes & reminders</p>
+              </div>
+            </label>
+
+            <label className="flex items-start gap-3 p-3 rounded-xl border border-border bg-card hover:bg-muted/30 transition-colors cursor-pointer sm:col-span-2">
+              <input
+                type="checkbox"
+                checked={includeSignatures}
+                onChange={e => setIncludeSignatures(e.target.checked)}
+                className="mt-1 rounded text-emerald-600 focus:ring-emerald-500"
+              />
+              <div className="text-xs">
+                <p className="font-medium text-foreground">Official Verification & Sign-off Block</p>
+                <p className="text-muted-foreground mt-0.5">Signature lines for Administrator & Treasurer audit verification</p>
+              </div>
+            </label>
+          </div>
+        </div>
+
+        {/* Modal Footer */}
+        <div className="px-6 py-4 border-t border-border bg-muted/20 flex items-center justify-between gap-3">
+          <div className="text-xs text-muted-foreground flex items-center gap-1.5">
+            <Shield size={14} className="text-emerald-600" />
+            <span>High-res vector PDF with official headers & page numbers</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Btn onClick={onClose} variant="ghost" size="sm">
+              Cancel
+            </Btn>
+            <Btn
+              onClick={handleCustomExport}
+              disabled={exporting}
+              size="sm"
+              className="bg-emerald-700 hover:bg-emerald-800 text-white"
+            >
+              {exporting ? (
+                <>
+                  <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  Building PDF...
+                </>
+              ) : success ? (
+                <>
+                  <Check size={14} /> PDF Downloaded!
+                </>
+              ) : (
+                <>
+                  <Download size={14} /> Generate & Download PDF
+                </>
+              )}
+            </Btn>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ─────────────────────────── DASHBOARD ─────────────────────────── */
-function DashboardView({ token }: { token: string }) {
+function DashboardView({ token, profile }: { token: string; profile?: ProfileInfo }) {
   const [members, setMembers] = useState<Member[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
+  const [exportModalOpen, setExportModalOpen] = useState(false);
 
   useEffect(() => {
     apiFetch<Member[]>("/api/members", { token }).then(setMembers).catch(() => {});
     apiFetch<Transaction[]>("/api/transactions", { token }).then(setTransactions).catch(() => {});
+    apiFetch<Announcement[]>("/api/announcements", { token }).then(setAnnouncements).catch(() => {});
   }, [token]);
 
   const totalIncome = transactions.filter(t => t.type === "income").reduce((s, t) => s + t.amount, 0);
@@ -853,6 +1225,56 @@ function DashboardView({ token }: { token: string }) {
 
   return (
     <div className="p-6 flex flex-col gap-6" style={{ fontFamily: "Outfit, sans-serif" }}>
+      {/* Top Action & Overview Bar */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-card p-4 rounded-2xl border border-border shadow-xs">
+        <div>
+          <div className="flex items-center gap-2">
+            <h2 className="text-xl font-semibold text-foreground" style={{ fontFamily: "Fraunces, serif" }}>
+              Organization Executive Dashboard
+            </h2>
+            <Badge label="Live Audit" variant="success" />
+          </div>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            {profile?.organization || "FundFlow Community Trust"} • Real-time financial & membership status
+          </p>
+        </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            onClick={() => exportOrganizationPDF({
+              organizationName: profile?.organization || "FundFlow Community Trust",
+              reportTitle: "Executive Financial & Management Report",
+              reportSubtitle: "Complete organizational performance and financial ledger audit",
+              generatedBy: profile?.name || "System Administrator",
+              includeKPIs: true,
+              includeMonthlyTrend: true,
+              includeExpenseCategories: true,
+              includeMembers: true,
+              includeTransactions: true,
+              transactionLimit: "all",
+              includeAnnouncements: true,
+              includeSignatures: true,
+              monthlyData: MONTHLY_DATA,
+              expensePie: EXPENSE_PIE,
+              members,
+              transactions,
+              announcements,
+            })}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-muted text-foreground hover:bg-muted/80 text-xs font-medium border border-border transition-colors cursor-pointer"
+            title="Download full PDF directly"
+          >
+            <Download size={14} className="text-muted-foreground" />
+            <span>Quick Export</span>
+          </button>
+          <button
+            onClick={() => setExportModalOpen(true)}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-medium shadow-sm transition-all cursor-pointer"
+          >
+            <FileText size={14} />
+            <span>Export Report (PDF)</span>
+          </button>
+        </div>
+      </div>
+
       {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard label="Total Fund Balance" value={fmt(balance)} sub="As of today" icon={Wallet} trend={8.9} color="balance" />
@@ -912,9 +1334,30 @@ function DashboardView({ token }: { token: string }) {
 
       {/* Recent Transactions */}
       <div className="bg-card rounded-2xl border border-border overflow-hidden">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-border">
-          <h3 className="font-semibold text-foreground" style={{ fontFamily: "Fraunces, serif" }}>Recent Transactions</h3>
-          <Badge label={`${recent.length} shown`} variant="neutral" />
+        <div className="flex items-center justify-between px-5 py-4 border-b border-border flex-wrap gap-2">
+          <div>
+            <h3 className="font-semibold text-foreground" style={{ fontFamily: "Fraunces, serif" }}>Recent Transactions</h3>
+            <p className="text-xs text-muted-foreground">Latest financial ledger entries</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => exportIncomeReport(transactions, profile?.organization, profile?.name)}
+              className="flex items-center gap-1 text-xs text-emerald-700 hover:text-emerald-800 bg-emerald-50 px-2.5 py-1.5 rounded-lg border border-emerald-200 transition-colors cursor-pointer"
+              title="Export all income transactions to PDF"
+            >
+              <Download size={13} />
+              <span>Income PDF</span>
+            </button>
+            <button
+              onClick={() => exportExpenseReport(transactions, profile?.organization, EXPENSE_PIE, profile?.name)}
+              className="flex items-center gap-1 text-xs text-red-700 hover:text-red-800 bg-red-50 px-2.5 py-1.5 rounded-lg border border-red-200 transition-colors cursor-pointer"
+              title="Export all expense transactions to PDF"
+            >
+              <Download size={13} />
+              <span>Expense PDF</span>
+            </button>
+            <Badge label={`${recent.length} shown`} variant="neutral" />
+          </div>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -952,12 +1395,22 @@ function DashboardView({ token }: { token: string }) {
           </table>
         </div>
       </div>
+
+      {/* Export Report Modal */}
+      <ExportReportModal
+        open={exportModalOpen}
+        onClose={() => setExportModalOpen(false)}
+        members={members}
+        transactions={transactions}
+        announcements={announcements}
+        profile={profile}
+      />
     </div>
   );
 }
 
 /* ─────────────────────────── MEMBERS ─────────────────────────── */
-function MembersView({ token }: { token: string }) {
+function MembersView({ token, profile }: { token: string; profile?: ProfileInfo }) {
   const [members, setMembers] = useState<Member[]>([]);
   const [search, setSearch] = useState("");
   const [modal, setModal] = useState<"add" | "edit" | null>(null);
@@ -1081,7 +1534,15 @@ function MembersView({ token }: { token: string }) {
             className="w-full pl-9 pr-3 py-2.5 rounded-lg border border-border bg-card text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
           />
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            onClick={() => exportMembersReport(members, profile?.organization, profile?.name)}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-card text-foreground hover:bg-muted text-xs font-medium border border-border transition-colors cursor-pointer"
+            title="Download member roster PDF"
+          >
+            <Download size={14} className="text-muted-foreground" />
+            <span>Export Roster PDF</span>
+          </button>
           <Btn onClick={openAddAdmin} variant="secondary"><Shield size={15} /> Add Admin</Btn>
           <Btn onClick={openAdd}><Plus size={15} /> Add Member</Btn>
         </div>
@@ -1181,7 +1642,7 @@ function MembersView({ token }: { token: string }) {
 /* ─────────────────────────── INCOME ─────────────────────────── */
 const INCOME_CATS = ["Monthly Contribution", "Donation", "Membership Fee", "Sponsorship", "Other"];
 
-function IncomeView({ token }: { token: string }) {
+function IncomeView({ token, profile }: { token: string; profile?: ProfileInfo }) {
   const [txs, setTxs] = useState<Transaction[]>([]);
   const [modal, setModal] = useState(false);
   const [form, setForm] = useState({ description: "", amount: "", category: "Monthly Contribution", date: "" });
@@ -1235,8 +1696,11 @@ function IncomeView({ token }: { token: string }) {
       <div className="bg-card rounded-2xl border border-border overflow-hidden">
         <div className="px-5 py-4 border-b border-border flex items-center justify-between">
           <h3 className="font-semibold" style={{ fontFamily: "Fraunces, serif" }}>Income Records</h3>
-          <button className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors">
-            <Download size={14} /> Export
+          <button
+            onClick={() => exportIncomeReport(txs, profile?.organization, profile?.name)}
+            className="flex items-center gap-1.5 text-xs text-emerald-700 hover:text-emerald-800 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-lg transition-colors font-medium cursor-pointer"
+          >
+            <Download size={13} /> Export PDF
           </button>
         </div>
         <div className="overflow-x-auto">
@@ -1284,7 +1748,7 @@ function IncomeView({ token }: { token: string }) {
 /* ─────────────────────────── EXPENSES ─────────────────────────── */
 const EXPENSE_CATS = ["Operations", "Events", "Welfare", "Education", "Admin", "Other"];
 
-function ExpensesView({ token }: { token: string }) {
+function ExpensesView({ token, profile }: { token: string; profile?: ProfileInfo }) {
   const [txs, setTxs] = useState<Transaction[]>([]);
   const [modal, setModal] = useState(false);
   const [form, setForm] = useState({ description: "", amount: "", category: "Operations", date: "" });
@@ -1328,7 +1792,7 @@ function ExpensesView({ token }: { token: string }) {
   const handleDelete = async (id: string) => {
     try {
       await apiFetch("/api/transactions", { method: "DELETE", token, body: { id } });
-      loadTxs();
+      loadMembers: loadTxs();
     } catch (err) { console.error(err); }
   };
 
@@ -1345,8 +1809,11 @@ function ExpensesView({ token }: { token: string }) {
       <div className="bg-card rounded-2xl border border-border overflow-hidden">
         <div className="px-5 py-4 border-b border-border flex items-center justify-between">
           <h3 className="font-semibold" style={{ fontFamily: "Fraunces, serif" }}>Expense Records</h3>
-          <button className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors">
-            <Download size={14} /> Export
+          <button
+            onClick={() => exportExpenseReport(txs, profile?.organization, EXPENSE_PIE, profile?.name)}
+            className="flex items-center gap-1.5 text-xs text-red-700 hover:text-red-800 bg-red-50 border border-red-200 px-3 py-1.5 rounded-lg transition-colors font-medium cursor-pointer"
+          >
+            <Download size={13} /> Export PDF
           </button>
         </div>
         <div className="overflow-x-auto">
@@ -1368,7 +1835,7 @@ function ExpensesView({ token }: { token: string }) {
                   <td className="px-5 py-3.5 font-mono font-semibold text-red-600">-{fmt(tx.amount)}</td>
                   <td className="px-5 py-3.5"><Badge label={tx.status} variant={tx.status === "completed" ? "success" : "warning"} /></td>
                   <td className="px-5 py-3.5">
-                    <button onClick={() => handleDelete(tx.id)} className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:bg-red-50 hover:text-red-600 transition-colors">
+                    <button onClick={() => handleDelete(tx.id)} className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:bg-red-50 hover:text-red-600 transition-colors cursor-pointer">
                       <Trash2 size={14} />
                     </button>
                   </td>
@@ -1397,19 +1864,42 @@ function ExpensesView({ token }: { token: string }) {
 }
 
 /* ─────────────────────────── REPORTS ─────────────────────────── */
-function ReportsView() {
+function ReportsView({ profile }: { profile?: ProfileInfo }) {
   const [tab, setTab] = useState<"overview" | "income" | "expenses">("overview");
 
   return (
     <div className="p-6 flex flex-col gap-5" style={{ fontFamily: "Outfit, sans-serif" }}>
-      <div className="flex items-center gap-1 p-1 bg-muted rounded-xl w-fit">
-        {(["overview", "income", "expenses"] as const).map(t => (
-          <button key={t} onClick={() => setTab(t)}
-            className={cn("px-4 py-1.5 rounded-lg text-sm font-medium capitalize transition-all",
-              tab === t ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground")}>
-            {t}
-          </button>
-        ))}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="flex items-center gap-1 p-1 bg-muted rounded-xl w-fit">
+          {(["overview", "income", "expenses"] as const).map(t => (
+            <button key={t} onClick={() => setTab(t)}
+              className={cn("px-4 py-1.5 rounded-lg text-sm font-medium capitalize transition-all cursor-pointer",
+                tab === t ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground")}>
+              {t}
+            </button>
+          ))}
+        </div>
+        <button
+          onClick={() => exportOrganizationPDF({
+            organizationName: profile?.organization || "FundFlow Community Trust",
+            reportTitle: "Financial Performance & Analytics Audit",
+            reportSubtitle: "Multi-period trend analysis and category distribution metrics",
+            generatedBy: profile?.name || "System Administrator",
+            includeKPIs: true,
+            includeMonthlyTrend: true,
+            includeExpenseCategories: true,
+            includeMembers: false,
+            includeTransactions: false,
+            includeAnnouncements: false,
+            includeSignatures: true,
+            monthlyData: MONTHLY_DATA,
+            expensePie: EXPENSE_PIE,
+          })}
+          className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-medium shadow-xs transition-colors cursor-pointer w-fit"
+        >
+          <Download size={14} />
+          <span>Export Analytics PDF</span>
+        </button>
       </div>
 
       {tab === "overview" && (
@@ -2514,15 +3004,15 @@ function AppShell({ role, token, userName, userEmail, onLogout }: { role: Role; 
 
   const renderView = () => {
     switch (view) {
-      case "dashboard": return <DashboardView token={token} />;
-      case "members": return <MembersView token={token} />;
-      case "income": return <IncomeView token={token} />;
-      case "expenses": return <ExpensesView token={token} />;
-      case "reports": return <ReportsView />;
+      case "dashboard": return <DashboardView token={token} profile={profile} />;
+      case "members": return <MembersView token={token} profile={profile} />;
+      case "income": return <IncomeView token={token} profile={profile} />;
+      case "expenses": return <ExpensesView token={token} profile={profile} />;
+      case "reports": return <ReportsView profile={profile} />;
       case "announcements": return <AnnouncementsView role={role} token={token} />;
       case "ai": return <AIView role={role} token={token} />;
       case "member-home": return <MemberHomeView token={token} userEmail={userEmail} />;
-      default: return <DashboardView token={token} />;
+      default: return <DashboardView token={token} profile={profile} />;
     }
   };
 
