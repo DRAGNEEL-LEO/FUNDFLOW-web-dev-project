@@ -87,25 +87,6 @@ interface Announcement {
   author: string;
 }
 
-/* ─────────────────────────── SEED DATA ─────────────────────── */
-const MONTHLY_DATA = [
-  { month: "Oct", income: 184000, expenses: 72000 },
-  { month: "Nov", income: 210000, expenses: 89000 },
-  { month: "Dec", income: 195000, expenses: 124000 },
-  { month: "Jan", income: 228000, expenses: 93000 },
-  { month: "Feb", income: 241000, expenses: 108000 },
-  { month: "Mar", income: 331000, expenses: 80500 },
-  { month: "Apr", income: 282000, expenses: 113000 },
-];
-
-const EXPENSE_PIE = [
-  { name: "Operations", value: 21000, color: "#0B4832" },
-  { name: "Events", value: 34000, color: "#14C768" },
-  { name: "Welfare", value: 36000, color: "#F59E0B" },
-  { name: "Education", value: 22000, color: "#6366F1" },
-  { name: "Admin", value: 18500, color: "#EC4899" },
-];
-
 /* ─────────────────────────── HELPERS ─────────────────────────── */
 const fmt = (n: number) => `Tk ${n.toLocaleString()}`;
 const fmtK = (n: number) => n >= 1000 ? `Tk ${(n / 1000).toFixed(0)}k` : `Tk ${n}`;
@@ -1184,11 +1165,44 @@ function ExportReportModal({
   const [exporting, setExporting] = useState(false);
   const [success, setSuccess] = useState(false);
 
-  useEffect(() => {
-    if (profile?.organization) {
-      setOrgName(profile.organization);
+  const dynamicMonthlyData = useMemo(() => {
+    const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const now = new Date();
+    const map: Record<string, { month: string; income: number; expenses: number }> = {};
+
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const label = monthNames[d.getMonth()];
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+      map[key] = { month: label, income: 0, expenses: 0 };
     }
-  }, [profile]);
+
+    transactions.forEach(t => {
+      if (!t.date) return;
+      const key = t.date.slice(0, 7);
+      if (map[key]) {
+        if (t.type === "income") map[key].income += t.amount;
+        else if (t.type === "expense") map[key].expenses += t.amount;
+      }
+    });
+
+    return Object.values(map);
+  }, [transactions]);
+
+  const dynamicExpensePie = useMemo(() => {
+    const expenses = transactions.filter(t => t.type === "expense");
+    if (expenses.length === 0) return [];
+    const catMap: Record<string, number> = {};
+    expenses.forEach(t => {
+      catMap[t.category] = (catMap[t.category] || 0) + t.amount;
+    });
+    const colors = ["#0B4832", "#14C768", "#F59E0B", "#6366F1", "#EC4899", "#3B82F6", "#8B5CF6"];
+    return Object.entries(catMap).map(([name, value], idx) => ({
+      name,
+      value,
+      color: colors[idx % colors.length],
+    }));
+  }, [transactions]);
 
   if (!open) return null;
 
@@ -1210,8 +1224,8 @@ function ExportReportModal({
           transactionLimit: "all",
           includeAnnouncements: true,
           includeSignatures: true,
-          monthlyData: MONTHLY_DATA,
-          expensePie: EXPENSE_PIE,
+          monthlyData: dynamicMonthlyData,
+          expensePie: dynamicExpensePie,
           members,
           transactions,
           announcements,
@@ -1247,8 +1261,8 @@ function ExportReportModal({
           transactionLimit,
           includeAnnouncements,
           includeSignatures,
-          monthlyData: MONTHLY_DATA,
-          expensePie: EXPENSE_PIE,
+          monthlyData: dynamicMonthlyData,
+          expensePie: dynamicExpensePie,
           members,
           transactions,
           announcements,
@@ -2318,9 +2332,22 @@ function ExpensesView({ token, profile }: { token: string; profile?: ProfileInfo
   const handleDelete = async (id: string) => {
     try {
       await apiFetch("/api/transactions", { method: "DELETE", token, body: { id } });
-      loadMembers: loadTxs();
+      loadTxs();
     } catch (err) { console.error(err); }
   };
+
+  const dynamicExpensePie = useMemo(() => {
+    const catMap: Record<string, number> = {};
+    txs.forEach(t => {
+      catMap[t.category] = (catMap[t.category] || 0) + t.amount;
+    });
+    const colors = ["#0B4832", "#14C768", "#F59E0B", "#6366F1", "#EC4899", "#3B82F6", "#8B5CF6"];
+    return Object.entries(catMap).map(([name, value], idx) => ({
+      name,
+      value,
+      color: colors[idx % colors.length],
+    }));
+  }, [txs]);
 
   return (
     <div className="p-6 flex flex-col gap-5" style={{ fontFamily: "Outfit, sans-serif" }}>
@@ -2336,7 +2363,7 @@ function ExpensesView({ token, profile }: { token: string; profile?: ProfileInfo
         <div className="px-5 py-4 border-b border-border flex items-center justify-between">
           <h3 className="font-semibold" style={{ fontFamily: "Fraunces, serif" }}>Expense Records</h3>
           <button
-            onClick={() => exportExpenseReport(txs, profile?.organization, EXPENSE_PIE, profile?.name)}
+            onClick={() => exportExpenseReport(txs, profile?.organization, dynamicExpensePie, profile?.name)}
             className="flex items-center gap-1.5 text-xs text-red-700 hover:text-red-800 bg-red-50 border border-red-200 px-3 py-1.5 rounded-lg transition-colors font-medium cursor-pointer"
           >
             <Download size={13} /> Export PDF
@@ -2402,8 +2429,73 @@ function ExpensesView({ token, profile }: { token: string; profile?: ProfileInfo
 }
 
 /* ─────────────────────────── REPORTS ─────────────────────────── */
-function ReportsView({ profile }: { profile?: ProfileInfo }) {
+function ReportsView({ token, profile }: { token: string; profile?: ProfileInfo }) {
   const [tab, setTab] = useState<"overview" | "income" | "expenses">("overview");
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [members, setMembers] = useState<Member[]>([]);
+
+  useEffect(() => {
+    apiFetch<Transaction[]>("/api/transactions", { token }).then(setTransactions).catch(() => {});
+    apiFetch<Member[]>("/api/members", { token }).then(setMembers).catch(() => {});
+  }, [token]);
+
+  const totalIncome = useMemo(() => transactions.filter(t => t.type === "income").reduce((s, t) => s + t.amount, 0), [transactions]);
+  const totalExpenses = useMemo(() => transactions.filter(t => t.type === "expense").reduce((s, t) => s + t.amount, 0), [transactions]);
+  const netBalance = totalIncome - totalExpenses;
+  const savingsRate = totalIncome > 0 ? `${Math.max(0, (netBalance / totalIncome) * 100).toFixed(1)}%` : "0.0%";
+
+  const monthlyData = useMemo(() => {
+    const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const now = new Date();
+    const map: Record<string, { month: string; income: number; expenses: number }> = {};
+
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const label = monthNames[d.getMonth()];
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+      map[key] = { month: label, income: 0, expenses: 0 };
+    }
+
+    transactions.forEach(t => {
+      if (!t.date) return;
+      const key = t.date.slice(0, 7);
+      if (map[key]) {
+        if (t.type === "income") map[key].income += t.amount;
+        else if (t.type === "expense") map[key].expenses += t.amount;
+      }
+    });
+
+    return Object.values(map);
+  }, [transactions]);
+
+  const expensePie = useMemo(() => {
+    const expenses = transactions.filter(t => t.type === "expense");
+    if (expenses.length === 0) return [];
+    const catMap: Record<string, number> = {};
+    expenses.forEach(t => {
+      catMap[t.category] = (catMap[t.category] || 0) + t.amount;
+    });
+    const colors = ["#0B4832", "#14C768", "#F59E0B", "#6366F1", "#EC4899", "#3B82F6", "#8B5CF6"];
+    return Object.entries(catMap).map(([name, value], idx) => ({
+      name,
+      value,
+      color: colors[idx % colors.length],
+    }));
+  }, [transactions]);
+
+  const incomeCategories = useMemo(() => {
+    const incomes = transactions.filter(t => t.type === "income");
+    if (incomes.length === 0) return [];
+    const catMap: Record<string, number> = {};
+    incomes.forEach(t => {
+      catMap[t.category] = (catMap[t.category] || 0) + t.amount;
+    });
+    return Object.entries(catMap).map(([category, amount]) => ({
+      category,
+      amount,
+      percent: totalIncome > 0 ? ((amount / totalIncome) * 100).toFixed(1) : "0",
+    }));
+  }, [transactions, totalIncome]);
 
   return (
     <div className="p-6 flex flex-col gap-5" style={{ fontFamily: "Outfit, sans-serif" }}>
@@ -2426,12 +2518,14 @@ function ReportsView({ profile }: { profile?: ProfileInfo }) {
             includeKPIs: true,
             includeMonthlyTrend: true,
             includeExpenseCategories: true,
-            includeMembers: false,
-            includeTransactions: false,
+            includeMembers: true,
+            includeTransactions: true,
             includeAnnouncements: false,
             includeSignatures: true,
-            monthlyData: MONTHLY_DATA,
-            expensePie: EXPENSE_PIE,
+            monthlyData,
+            expensePie,
+            members,
+            transactions,
           })}
           className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-medium shadow-xs transition-colors cursor-pointer w-fit"
         >
@@ -2444,10 +2538,10 @@ function ReportsView({ profile }: { profile?: ProfileInfo }) {
         <>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             {[
-              { label: "Net Balance", value: fmt(1874500), color: "text-foreground" },
-              { label: "Total Income (YTD)", value: fmt(1671000), color: "text-emerald-700" },
-              { label: "Total Expenses (YTD)", value: fmt(579500), color: "text-red-600" },
-              { label: "Savings Rate", value: "65.3%", color: "text-indigo-700" },
+              { label: "Net Balance", value: fmt(netBalance), color: netBalance >= 0 ? "text-foreground" : "text-red-600" },
+              { label: "Total Income (YTD)", value: fmt(totalIncome), color: "text-emerald-700" },
+              { label: "Total Expenses (YTD)", value: fmt(totalExpenses), color: "text-red-600" },
+              { label: "Savings Rate", value: savingsRate, color: "text-indigo-700" },
             ].map(s => (
               <div key={s.label} className="bg-card rounded-2xl p-4 border border-border">
                 <p className="text-xs text-muted-foreground">{s.label}</p>
@@ -2457,9 +2551,9 @@ function ReportsView({ profile }: { profile?: ProfileInfo }) {
           </div>
           <div className="bg-card rounded-2xl p-5 border border-border">
             <h3 className="font-semibold mb-1" style={{ fontFamily: "Fraunces, serif" }}>7-Month Income vs Expense Trend</h3>
-            <p className="text-xs text-muted-foreground mb-5">Monthly comparison for Oct 2023 – Apr 2024</p>
+            <p className="text-xs text-muted-foreground mb-5">Rolling monthly treasury comparison</p>
             <ResponsiveContainer width="100%" height={280}>
-              <AreaChart data={MONTHLY_DATA}>
+              <AreaChart data={monthlyData}>
                 <defs>
                   <linearGradient id="incomeGrad" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#14C768" stopOpacity={0.15} />
@@ -2484,18 +2578,45 @@ function ReportsView({ profile }: { profile?: ProfileInfo }) {
       )}
 
       {tab === "income" && (
-        <div className="bg-card rounded-2xl p-5 border border-border">
-          <h3 className="font-semibold mb-1" style={{ fontFamily: "Fraunces, serif" }}>Monthly Income Breakdown</h3>
-          <p className="text-xs text-muted-foreground mb-5">Income by category per month</p>
-          <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={MONTHLY_DATA}>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.06)" vertical={false} />
-              <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#6B6560", fontFamily: "DM Mono" }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fontSize: 11, fill: "#6B6560", fontFamily: "DM Mono" }} axisLine={false} tickLine={false} tickFormatter={v => fmtK(v)} />
-              <Tooltip formatter={(v: number) => fmt(v)} contentStyle={{ borderRadius: 10, border: "1px solid rgba(0,0,0,0.08)", fontFamily: "DM Mono", fontSize: 12 }} />
-              <Bar dataKey="income" name="Total Income" fill="#14C768" radius={[4, 4, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
+        <div className="grid lg:grid-cols-2 gap-6">
+          <div className="bg-card rounded-2xl p-5 border border-border">
+            <h3 className="font-semibold mb-1" style={{ fontFamily: "Fraunces, serif" }}>Monthly Income Breakdown</h3>
+            <p className="text-xs text-muted-foreground mb-5">Monthly recorded income</p>
+            <ResponsiveContainer width="100%" height={260}>
+              <BarChart data={monthlyData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.06)" vertical={false} />
+                <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#6B6560", fontFamily: "DM Mono" }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fontSize: 11, fill: "#6B6560", fontFamily: "DM Mono" }} axisLine={false} tickLine={false} tickFormatter={v => fmtK(v)} />
+                <Tooltip formatter={(v: number) => fmt(v)} contentStyle={{ borderRadius: 10, border: "1px solid rgba(0,0,0,0.08)", fontFamily: "DM Mono", fontSize: 12 }} />
+                <Bar dataKey="income" name="Total Income" fill="#14C768" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+          <div className="bg-card rounded-2xl p-5 border border-border flex flex-col justify-between">
+            <div>
+              <h3 className="font-semibold mb-1" style={{ fontFamily: "Fraunces, serif" }}>Income by Category</h3>
+              <p className="text-xs text-muted-foreground mb-4">Revenue stream distribution</p>
+            </div>
+            {incomeCategories.length === 0 ? (
+              <div className="py-12 text-center text-muted-foreground flex flex-col items-center justify-center gap-1.5">
+                <ArrowUpRight size={28} className="text-emerald-600/50 mb-1" />
+                <p className="text-xs font-semibold text-foreground">No income recorded yet</p>
+                <p className="text-[11px] text-muted-foreground">Collections recorded in Fund Income will appear categorized here.</p>
+              </div>
+            ) : (
+              <div className="flex flex-col divide-y divide-border/60">
+                {incomeCategories.map(cat => (
+                  <div key={cat.category} className="py-2.5 flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-foreground">{cat.category}</p>
+                      <p className="text-xs text-muted-foreground">{cat.percent}% of total revenues</p>
+                    </div>
+                    <span className="font-mono text-sm font-semibold text-emerald-700">+{fmt(cat.amount)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       )}
 
@@ -2503,9 +2624,9 @@ function ReportsView({ profile }: { profile?: ProfileInfo }) {
         <div className="grid lg:grid-cols-2 gap-6">
           <div className="bg-card rounded-2xl p-5 border border-border">
             <h3 className="font-semibold mb-1" style={{ fontFamily: "Fraunces, serif" }}>Monthly Expenses</h3>
-            <p className="text-xs text-muted-foreground mb-5">Monthly expense totals</p>
+            <p className="text-xs text-muted-foreground mb-5">Monthly expense disbursements</p>
             <ResponsiveContainer width="100%" height={250}>
-              <BarChart data={MONTHLY_DATA}>
+              <BarChart data={monthlyData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.06)" vertical={false} />
                 <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#6B6560", fontFamily: "DM Mono" }} axisLine={false} tickLine={false} />
                 <YAxis tick={{ fontSize: 11, fill: "#6B6560", fontFamily: "DM Mono" }} axisLine={false} tickLine={false} tickFormatter={v => fmtK(v)} />
@@ -2514,26 +2635,38 @@ function ReportsView({ profile }: { profile?: ProfileInfo }) {
               </BarChart>
             </ResponsiveContainer>
           </div>
-          <div className="bg-card rounded-2xl p-5 border border-border">
-            <h3 className="font-semibold mb-1" style={{ fontFamily: "Fraunces, serif" }}>Expense by Category</h3>
-            <p className="text-xs text-muted-foreground mb-5">Distribution for current period</p>
-            <ResponsiveContainer width="100%" height={180}>
-              <PieChart>
-                <Pie data={EXPENSE_PIE} cx="50%" cy="50%" innerRadius={50} outerRadius={85} paddingAngle={3} dataKey="value">
-                  {EXPENSE_PIE.map((e, i) => <Cell key={i} fill={e.color} />)}
-                </Pie>
-                <Tooltip formatter={(v: number) => fmt(v)} contentStyle={{ borderRadius: 10, fontSize: 12, fontFamily: "DM Mono" }} />
-              </PieChart>
-            </ResponsiveContainer>
-            <div className="grid grid-cols-2 gap-y-2 mt-3">
-              {EXPENSE_PIE.map(item => (
-                <div key={item.name} className="flex items-center gap-2">
-                  <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: item.color }} />
-                  <span className="text-xs text-muted-foreground">{item.name}</span>
-                  <span className="text-xs font-mono font-medium text-foreground ml-auto">{fmt(item.value)}</span>
-                </div>
-              ))}
+          <div className="bg-card rounded-2xl p-5 border border-border flex flex-col justify-between">
+            <div>
+              <h3 className="font-semibold mb-1" style={{ fontFamily: "Fraunces, serif" }}>Expense by Category</h3>
+              <p className="text-xs text-muted-foreground mb-5">Distribution for current period</p>
             </div>
+            {expensePie.length === 0 ? (
+              <div className="py-12 text-center text-muted-foreground flex flex-col items-center justify-center gap-1.5">
+                <TrendingDown size={28} className="text-red-500/50 mb-1" />
+                <p className="text-xs font-semibold text-foreground">No expenses recorded yet</p>
+                <p className="text-[11px] text-muted-foreground">Disbursements recorded in the Expenses tab will appear here.</p>
+              </div>
+            ) : (
+              <>
+                <ResponsiveContainer width="100%" height={180}>
+                  <PieChart>
+                    <Pie data={expensePie} cx="50%" cy="50%" innerRadius={50} outerRadius={85} paddingAngle={3} dataKey="value">
+                      {expensePie.map((e, i) => <Cell key={i} fill={e.color} />)}
+                    </Pie>
+                    <Tooltip formatter={(v: number) => fmt(v)} contentStyle={{ borderRadius: 10, fontSize: 12, fontFamily: "DM Mono" }} />
+                  </PieChart>
+                </ResponsiveContainer>
+                <div className="grid grid-cols-2 gap-y-2 mt-3">
+                  {expensePie.map(item => (
+                    <div key={item.name} className="flex items-center gap-2">
+                      <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: item.color }} />
+                      <span className="text-xs text-muted-foreground">{item.name}</span>
+                      <span className="text-xs font-mono font-medium text-foreground ml-auto">{fmt(item.value)}</span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
@@ -3866,7 +3999,7 @@ function AppShell({
       case "members": return <MembersView token={token} profile={profile} />;
       case "income": return <IncomeView token={token} profile={profile} />;
       case "expenses": return <ExpensesView token={token} profile={profile} />;
-      case "reports": return <ReportsView profile={profile} />;
+      case "reports": return <ReportsView token={token} profile={profile} />;
       case "announcements": return <AnnouncementsView role={role} token={token} />;
       case "ai": return <AIView role={role} token={token} profile={profile} />;
       case "member-home": return <MemberHomeView token={token} userEmail={userEmail} />;
