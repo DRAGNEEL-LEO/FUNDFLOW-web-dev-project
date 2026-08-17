@@ -1,6 +1,5 @@
 // API helper for making authenticated requests
 
-const API_TOKEN_KEY = "fundflow_token";
 const API_AUTH_KEY = "fundflow_auth";
 
 export interface AuthData {
@@ -8,6 +7,8 @@ export interface AuthData {
   role: "admin" | "member";
   name: string;
   email: string;
+  orgName?: string;
+  orgId?: string;
 }
 
 export function getStoredAuth(): AuthData | null {

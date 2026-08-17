@@ -10,6 +10,7 @@ export function isValidNumber(val: any, options?: { positive?: boolean; nonNegat
 export function isValidDateStr(dateStr: string): boolean;
 
 export function validateRegisterPayload(data?: any): ValidationResult;
+export function validateRegisterOrgPayload(data?: any): ValidationResult;
 export function validateLoginPayload(data?: any): ValidationResult;
 export function validateTransactionPayload(data?: any): ValidationResult;
 export function validateMemberPayload(data?: any, isUpdate?: boolean): ValidationResult;

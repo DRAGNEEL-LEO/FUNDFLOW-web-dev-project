@@ -3,6 +3,7 @@ import { apiFetch, getStoredAuth, storeAuth, clearAuth } from "./api";
 import {
   validateLoginPayload,
   validateRegisterPayload,
+  validateRegisterOrgPayload,
   validateTransactionPayload,
   validateMemberPayload,
   validateAnnouncementPayload,
@@ -14,7 +15,7 @@ import {
   Megaphone, CreditCard, AlertCircle, Check,
   User, ChevronRight, Activity, Target,
   ArrowRight, Star, Lock, Shield, Settings,
-  FileText, SlidersHorizontal,
+  FileText, SlidersHorizontal, FileCheck, QrCode, Building2,
 } from "lucide-react";
 import {
   AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
@@ -25,7 +26,10 @@ import {
   exportIncomeReport,
   exportExpenseReport,
   exportMembersReport,
+  exportPaymentReceiptPDF,
+  exportContributionCertificatePDF,
 } from "./utils/pdfExport";
+import { PaymentModal } from "./components/PaymentModal";
 
 /* ─────────────────────────── TYPES ─────────────────────────── */
 type Role = "admin" | "member";
@@ -516,109 +520,415 @@ function LandingPage({ onGetStarted }: { onGetStarted: () => void }) {
   );
 }
 
-/* ─────────────────────────── LOGIN ─────────────────────────── */
-function LoginView({ onLogin, onBack }: { onLogin: (role: Role, token: string, name: string, email: string) => void; onBack?: () => void }) {
-  const [email, setEmail] = useState("admin@fundflow.org");
-  const [password, setPassword] = useState("password");
-  const [error, setError] = useState("");
-  const [fieldErrors, setFieldErrors] = useState<{ email?: string; password?: string }>({});
-  const [loading, setLoading] = useState(false);
+/* ─────────────────────────── LOGIN & REGISTER ORG ─────────────────────────── */
+function LoginView({
+  onLogin,
+  onBack,
+}: {
+  onLogin: (role: Role, token: string, name: string, email: string, orgName?: string, orgId?: string) => void;
+  onBack?: () => void;
+}) {
+  const [tab, setTab] = useState<"login" | "register">("login");
 
-  const handleSubmit = async () => {
-    const val = validateLoginPayload({ email, password });
+  // Login form state
+  const [loginEmail, setLoginEmail] = useState("admin@fundflow.org");
+  const [loginPassword, setLoginPassword] = useState("password");
+  const [loginError, setLoginError] = useState("");
+  const [loginFieldErrors, setLoginFieldErrors] = useState<{ email?: string; password?: string }>({});
+  const [loginLoading, setLoginLoading] = useState(false);
+
+  // Register Org form state
+  const [orgName, setOrgName] = useState("");
+  const [adminName, setAdminName] = useState("");
+  const [regEmail, setRegEmail] = useState("");
+  const [regPhone, setRegPhone] = useState("");
+  const [regPassword, setRegPassword] = useState("");
+  const [regConfirmPassword, setRegConfirmPassword] = useState("");
+  const [regError, setRegError] = useState("");
+  const [regFieldErrors, setRegFieldErrors] = useState<Record<string, string>>({});
+  const [regLoading, setRegLoading] = useState(false);
+
+  const handleLoginSubmit = async () => {
+    const val = validateLoginPayload({ email: loginEmail, password: loginPassword });
     if (!val.isValid) {
-      setFieldErrors(val.errors);
-      setError("Please resolve the input errors below.");
+      setLoginFieldErrors(val.errors);
+      setLoginError("Please resolve the input errors below.");
       return;
     }
-    setFieldErrors({});
-    setLoading(true); setError("");
+    setLoginFieldErrors({});
+    setLoginLoading(true);
+    setLoginError("");
+
     try {
-      const data = await apiFetch<{ token: string; role: Role; name: string; email: string }>("/api/login", {
-        method: "POST", body: { email, password },
+      const data = await apiFetch<{
+        token: string;
+        role: Role;
+        name: string;
+        email: string;
+        orgName?: string;
+        orgId?: string;
+      }>("/api/login", {
+        method: "POST",
+        body: { email: loginEmail, password: loginPassword },
       });
-      storeAuth({ token: data.token, role: data.role, name: data.name, email: data.email });
-      onLogin(data.role, data.token, data.name, data.email);
+      storeAuth({
+        token: data.token,
+        role: data.role,
+        name: data.name,
+        email: data.email,
+        orgName: data.orgName,
+        orgId: data.orgId,
+      });
+      onLogin(data.role, data.token, data.name, data.email, data.orgName, data.orgId);
     } catch (err: any) {
       if (err?.details) {
-        setFieldErrors(err.details);
+        setLoginFieldErrors(err.details);
       }
-      setError(err instanceof Error ? err.message : "Login failed.");
-    } finally { setLoading(false); }
+      setLoginError(err instanceof Error ? err.message : "Login failed.");
+    } finally {
+      setLoginLoading(false);
+    }
+  };
+
+  const handleRegisterOrgSubmit = async () => {
+    const val = validateRegisterOrgPayload({
+      orgName,
+      adminName,
+      email: regEmail,
+      password: regPassword,
+      phone: regPhone,
+    });
+
+    const localErrors = { ...val.errors };
+    if (regPassword !== regConfirmPassword) {
+      localErrors.confirmPassword = "Passwords do not match.";
+    }
+
+    if (Object.keys(localErrors).length > 0) {
+      setRegFieldErrors(localErrors);
+      setRegError("Please resolve the validation errors below.");
+      return;
+    }
+
+    setRegFieldErrors({});
+    setRegLoading(true);
+    setRegError("");
+
+    try {
+      const data = await apiFetch<{
+        success: boolean;
+        token: string;
+        role: Role;
+        name: string;
+        email: string;
+        orgName: string;
+        orgId: string;
+      }>("/api/register-org", {
+        method: "POST",
+        body: {
+          orgName,
+          adminName,
+          email: regEmail,
+          password: regPassword,
+          phone: regPhone,
+        },
+      });
+
+      storeAuth({
+        token: data.token,
+        role: data.role,
+        name: data.name,
+        email: data.email,
+        orgName: data.orgName,
+        orgId: data.orgId,
+      });
+
+      onLogin(data.role, data.token, data.name, data.email, data.orgName, data.orgId);
+    } catch (err: any) {
+      if (err?.details) {
+        setRegFieldErrors(err.details);
+      }
+      setRegError(err instanceof Error ? err.message : "Organization registration failed.");
+    } finally {
+      setRegLoading(false);
+    }
   };
 
   return (
     <div className="min-h-screen flex" style={{ fontFamily: "Outfit, sans-serif" }}>
       {/* Left Panel */}
-      <div className="hidden lg:flex lg:w-[55%] flex-col justify-between p-14 relative overflow-hidden"
-        style={{ background: "linear-gradient(135deg, #09182A 0%, #0B2D1C 60%, #0B4832 100%)" }}>
+      <div
+        className="hidden lg:flex lg:w-[50%] flex-col justify-between p-12 relative overflow-hidden"
+        style={{ background: "linear-gradient(135deg, #09182A 0%, #0B2D1C 60%, #0B4832 100%)" }}
+      >
         <div className="relative z-10">
-          <div className="flex items-center gap-3 mb-16">
-            <div className="w-9 h-9 rounded-xl bg-accent flex items-center justify-center">
-              <Wallet size={18} className="text-white" />
+          <div className="flex items-center gap-3 mb-12">
+            <div className="w-10 h-10 rounded-xl bg-accent flex items-center justify-center shadow-lg shadow-accent/20">
+              <Wallet size={20} className="text-white" />
             </div>
-            <span className="text-white text-xl font-semibold" style={{ fontFamily: "Fraunces, serif" }}>FundFlow</span>
+            <span className="text-white text-2xl font-semibold" style={{ fontFamily: "Fraunces, serif" }}>
+              FundFlow
+            </span>
           </div>
-          <h1 className="text-5xl font-semibold leading-tight text-white mb-6" style={{ fontFamily: "Fraunces, serif" }}>
-            Smart fund<br />management for<br /><em className="not-italic text-accent">every organization.</em>
+          <h1 className="text-4xl xl:text-5xl font-semibold leading-tight text-white mb-5" style={{ fontFamily: "Fraunces, serif" }}>
+            Smart fund<br />management for<br />
+            <em className="not-italic text-accent">every organization.</em>
           </h1>
-          <p className="text-white/60 text-lg leading-relaxed max-w-sm">
-            Digitize your finances, track contributions, and gain AI-powered insights — all in one secure platform.
+          <p className="text-white/70 text-base leading-relaxed max-w-md">
+            Create an independent, secure fund management system for your NGO, university club, welfare foundation, or cooperative in seconds.
           </p>
         </div>
-        <div className="relative z-10 grid grid-cols-3 gap-4">
+
+        <div className="relative z-10 grid grid-cols-3 gap-3">
           {[
-            { label: "Total Members", value: "247" },
-            { label: "Funds Managed", value: "Tk 4.2M" },
-            { label: "Accuracy Rate", value: "99.8%" },
+            { label: "Multi-Org Portals", value: "Unlimited" },
+            { label: "Ledger Accuracy", value: "100%" },
+            { label: "Instant Digital Receipts", value: "Automated" },
           ].map(s => (
-            <div key={s.label} className="rounded-xl p-4 border border-white/10 bg-white/5">
-              <p className="text-white text-xl font-semibold font-mono">{s.value}</p>
-              <p className="text-white/50 text-xs mt-1">{s.label}</p>
+            <div key={s.label} className="rounded-xl p-3.5 border border-white/10 bg-white/5 backdrop-blur-xs">
+              <p className="text-white text-lg font-semibold font-mono">{s.value}</p>
+              <p className="text-white/50 text-xs mt-0.5">{s.label}</p>
             </div>
           ))}
         </div>
-        {/* decorative circles */}
+
         <div className="absolute -top-24 -right-24 w-96 h-96 rounded-full bg-accent/10 blur-3xl" />
         <div className="absolute bottom-32 -left-16 w-64 h-64 rounded-full bg-accent/5 blur-2xl" />
       </div>
 
       {/* Right Panel */}
-      <div className="flex-1 flex items-center justify-center bg-background px-8">
-        <div className="w-full max-w-sm">
-          <div className="flex items-center justify-between mb-10">
+      <div className="flex-1 flex items-center justify-center bg-background px-6 py-10 overflow-y-auto">
+        <div className="w-full max-w-md my-auto">
+          <div className="flex items-center justify-between mb-6">
             <div className="flex items-center gap-2">
               <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
                 <Wallet size={16} className="text-white" />
               </div>
-              <span className="text-foreground font-semibold" style={{ fontFamily: "Fraunces, serif" }}>FundFlow</span>
+              <span className="text-foreground font-semibold" style={{ fontFamily: "Fraunces, serif" }}>
+                FundFlow
+              </span>
             </div>
             {onBack && (
-              <button onClick={onBack} className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors">
-                <ArrowRight size={14} className="rotate-180" /> Back to home
+              <button
+                onClick={onBack}
+                className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+              >
+                <ArrowRight size={13} className="rotate-180" /> Back to home
               </button>
             )}
           </div>
-          <h2 className="text-2xl font-semibold text-foreground mb-1" style={{ fontFamily: "Fraunces, serif" }}>Welcome back</h2>
-          <p className="text-muted-foreground text-sm mb-8">Sign in to your account to continue</p>
 
-          <div className="flex flex-col gap-4">
-            <Input label="Email address" value={email} onChange={setEmail} type="email" placeholder="you@fundflow.org" error={fieldErrors.email} />
-            <Input label="Password" value={password} onChange={setPassword} type="password" placeholder="••••••••" error={fieldErrors.password} />
-            {error && (
-              <div className="flex items-center gap-2 p-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm">
-                <AlertCircle size={14} /> {error}
+          {/* Tab Switcher */}
+          <div className="flex p-1 bg-muted/70 rounded-xl border border-border mb-6">
+            <button
+              onClick={() => {
+                setTab("login");
+                setLoginError("");
+                setRegError("");
+              }}
+              className={cn(
+                "flex-1 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer",
+                tab === "login"
+                  ? "bg-card text-foreground shadow-xs border border-border"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              Sign In
+            </button>
+            <button
+              onClick={() => {
+                setTab("register");
+                setLoginError("");
+                setRegError("");
+              }}
+              className={cn(
+                "flex-1 py-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer",
+                tab === "register"
+                  ? "bg-emerald-700 text-white shadow-xs"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              <Building2 size={13} />
+              <span>Create Organization</span>
+            </button>
+          </div>
+
+          {tab === "login" ? (
+            /* ────── SIGN IN MODE ────── */
+            <div>
+              <h2 className="text-2xl font-semibold text-foreground mb-1" style={{ fontFamily: "Fraunces, serif" }}>
+                Welcome back
+              </h2>
+              <p className="text-muted-foreground text-xs mb-6">Sign in to access your organization workspace</p>
+
+              <div className="flex flex-col gap-4">
+                <Input
+                  label="Email address"
+                  value={loginEmail}
+                  onChange={setLoginEmail}
+                  type="email"
+                  placeholder="admin@fundflow.org"
+                  error={loginFieldErrors.email}
+                />
+                <Input
+                  label="Password"
+                  value={loginPassword}
+                  onChange={setLoginPassword}
+                  type="password"
+                  placeholder="••••••••"
+                  error={loginFieldErrors.password}
+                />
+
+                {loginError && (
+                  <div className="flex items-center gap-2 p-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-xs">
+                    <AlertCircle size={14} className="shrink-0" />
+                    <span>{loginError}</span>
+                  </div>
+                )}
+
+                <Btn
+                  onClick={handleLoginSubmit}
+                  className="w-full justify-center mt-1 py-2.5"
+                  disabled={loginLoading}
+                >
+                  {loginLoading ? "Signing in..." : "Sign In to Dashboard"}
+                </Btn>
               </div>
-            )}
-            <Btn onClick={handleSubmit} className="w-full justify-center mt-1" disabled={loading}>{loading ? "Signing in…" : "Sign In"}</Btn>
-          </div>
 
-          <div className="mt-8 p-4 rounded-xl bg-muted border border-border text-xs text-muted-foreground">
-            <p className="font-medium text-foreground mb-2">Demo credentials</p>
-            <p>Admin: <span className="font-mono text-foreground">admin@fundflow.org</span></p>
-            <p>Member: <span className="font-mono text-foreground">member@fundflow.org</span></p>
-            <p className="mt-1">Password: <span className="font-mono text-foreground">password</span></p>
-          </div>
+              {/* Demo Quick Fill Cards */}
+              <div className="mt-6 p-4 rounded-xl bg-muted/60 border border-border text-xs">
+                <p className="font-semibold text-foreground mb-2 flex items-center justify-between">
+                  <span>Quick Demo Logins</span>
+                  <span className="text-[10px] text-muted-foreground">Click to fill</span>
+                </p>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    onClick={() => {
+                      setLoginEmail("admin@fundflow.org");
+                      setLoginPassword("password");
+                    }}
+                    className="p-2.5 rounded-lg bg-card hover:bg-muted border border-border text-left transition-colors cursor-pointer"
+                  >
+                    <p className="font-semibold text-emerald-700">👑 Admin Portal</p>
+                    <p className="text-[11px] text-muted-foreground truncate font-mono">admin@fundflow.org</p>
+                  </button>
+                  <button
+                    onClick={() => {
+                      setLoginEmail("member@fundflow.org");
+                      setLoginPassword("password");
+                    }}
+                    className="p-2.5 rounded-lg bg-card hover:bg-muted border border-border text-left transition-colors cursor-pointer"
+                  >
+                    <p className="font-semibold text-primary">👤 Member Portal</p>
+                    <p className="text-[11px] text-muted-foreground truncate font-mono">member@fundflow.org</p>
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : (
+            /* ────── REGISTER ORGANIZATION & ADMIN MODE ────── */
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold">
+                  NEW WORKSPACE
+                </span>
+                <p className="text-xs text-muted-foreground">Takes less than 1 minute</p>
+              </div>
+              <h2 className="text-2xl font-semibold text-foreground mb-1" style={{ fontFamily: "Fraunces, serif" }}>
+                Create Organization System
+              </h2>
+              <p className="text-muted-foreground text-xs mb-5">
+                Set up a dedicated fund workspace for your organization and primary administrator account.
+              </p>
+
+              <div className="flex flex-col gap-3.5">
+                <Input
+                  label="Organization / Club / Trust Name *"
+                  value={orgName}
+                  onChange={setOrgName}
+                  placeholder="e.g. Dhaka University IT Society"
+                  error={regFieldErrors.orgName}
+                />
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <Input
+                    label="Administrator Full Name *"
+                    value={adminName}
+                    onChange={setAdminName}
+                    placeholder="e.g. Tanvir Ahmed"
+                    error={regFieldErrors.adminName}
+                  />
+                  <Input
+                    label="Phone Number"
+                    value={regPhone}
+                    onChange={setRegPhone}
+                    placeholder="+880 1700 000000"
+                    error={regFieldErrors.phone}
+                  />
+                </div>
+
+                <Input
+                  label="Official Admin Email Address *"
+                  value={regEmail}
+                  onChange={setRegEmail}
+                  type="email"
+                  placeholder="admin@yourorg.org"
+                  error={regFieldErrors.email}
+                />
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <Input
+                    label="Master Password *"
+                    value={regPassword}
+                    onChange={setRegPassword}
+                    type="password"
+                    placeholder="Min 6 characters"
+                    error={regFieldErrors.password}
+                  />
+                  <Input
+                    label="Confirm Password *"
+                    value={regConfirmPassword}
+                    onChange={setRegConfirmPassword}
+                    type="password"
+                    placeholder="Re-enter password"
+                    error={regFieldErrors.confirmPassword}
+                  />
+                </div>
+
+                {regError && (
+                  <div className="flex items-center gap-2 p-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-xs">
+                    <AlertCircle size={14} className="shrink-0" />
+                    <span>{regError}</span>
+                  </div>
+                )}
+
+                <Btn
+                  onClick={handleRegisterOrgSubmit}
+                  className="w-full justify-center mt-2 py-3 bg-emerald-700 hover:bg-emerald-800"
+                  disabled={regLoading}
+                >
+                  {regLoading ? (
+                    "Setting up Organization..."
+                  ) : (
+                    <>
+                      <Sparkles size={15} />
+                      <span>Create Organization & Launch Dashboard</span>
+                    </>
+                  )}
+                </Btn>
+              </div>
+
+              <p className="text-center text-[11px] text-muted-foreground mt-4">
+                Already have an organization?{" "}
+                <button
+                  onClick={() => setTab("login")}
+                  className="text-emerald-700 font-semibold hover:underline cursor-pointer"
+                >
+                  Sign in here
+                </button>
+              </p>
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -1415,6 +1725,7 @@ function MembersView({ token, profile }: { token: string; profile?: ProfileInfo 
   const [search, setSearch] = useState("");
   const [modal, setModal] = useState<"add" | "edit" | null>(null);
   const [editTarget, setEditTarget] = useState<Member | null>(null);
+  const [payingMember, setPayingMember] = useState<Member | null>(null);
   const [form, setForm] = useState<{ name: string; email: string; phone: string; status: string; password: string; role: "member" | "admin" }>({
     name: "", email: "", phone: "", status: "active", password: "", role: "member",
   });
@@ -1523,6 +1834,35 @@ function MembersView({ token, profile }: { token: string; profile?: ProfileInfo 
     } catch (err) { console.error("Delete failed:", err); }
   };
 
+  const handleMemberPaymentSuccess = async (payment: { amount: number; category: string; reference: string; description: string }) => {
+    if (!payingMember) return;
+    try {
+      // Record transaction
+      await apiFetch("/api/transactions", {
+        method: "POST",
+        token,
+        body: {
+          type: "income",
+          category: payment.category,
+          amount: payment.amount,
+          description: payment.description,
+          date: new Date().toISOString().slice(0, 10),
+          reference: payment.reference,
+        },
+      });
+
+      // Update member balance locally & reload
+      setMembers(prev => prev.map(m => m.id === payingMember.id ? {
+        ...m,
+        contributions: m.contributions + payment.amount,
+        outstanding: Math.max(0, m.outstanding - payment.amount),
+      } : m));
+      loadMembers();
+    } catch (e) {
+      console.error("Member payment update failed:", e);
+    }
+  };
+
   return (
     <div className="p-6 flex flex-col gap-5" style={{ fontFamily: "Outfit, sans-serif" }}>
       <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
@@ -1570,7 +1910,7 @@ function MembersView({ token, profile }: { token: string; profile?: ProfileInfo 
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-muted/50 border-b border-border">
-                {["Member", "Contact", "Joined", "Contributions", "Outstanding", "Status", ""].map(h => (
+                {["Member", "Contact", "Joined", "Contributions", "Outstanding", "Status", "Actions"].map(h => (
                   <th key={h} className="text-left px-5 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wide whitespace-nowrap">{h}</th>
                 ))}
               </tr>
@@ -1599,11 +1939,33 @@ function MembersView({ token, profile }: { token: string; profile?: ProfileInfo 
                     <Badge label={m.status} variant={m.status === "active" ? "success" : "neutral"} />
                   </td>
                   <td className="px-5 py-3.5">
-                    <div className="flex items-center gap-1">
-                      <button onClick={() => openEdit(m)} className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground transition-colors">
+                    <div className="flex items-center gap-1.5">
+                      {m.outstanding > 0 && (
+                        <button
+                          onClick={() => setPayingMember(m)}
+                          title="Collect / Pay Dues via QR"
+                          className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 text-xs font-semibold cursor-pointer"
+                        >
+                          <CreditCard size={12} />
+                          <span>Pay</span>
+                        </button>
+                      )}
+                      <button
+                        onClick={() =>
+                          exportContributionCertificatePDF({
+                            member: m,
+                            organizationName: profile?.organization || "FundFlow Community Trust",
+                          })
+                        }
+                        title="Download Annual Contribution Certificate (PDF)"
+                        className="w-8 h-8 rounded-lg flex items-center justify-center text-emerald-700 hover:bg-emerald-50 border border-emerald-200/60 transition-colors cursor-pointer"
+                      >
+                        <FileCheck size={14} />
+                      </button>
+                      <button onClick={() => openEdit(m)} title="Edit Member" className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground transition-colors cursor-pointer">
                         <Edit2 size={14} />
                       </button>
-                      <button onClick={() => handleDelete(m.id)} className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:bg-red-50 hover:text-red-600 transition-colors">
+                      <button onClick={() => handleDelete(m.id)} title="Delete Member" className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:bg-red-50 hover:text-red-600 transition-colors cursor-pointer">
                         <Trash2 size={14} />
                       </button>
                     </div>
@@ -1635,6 +1997,18 @@ function MembersView({ token, profile }: { token: string; profile?: ProfileInfo 
           </div>
         </div>
       </Modal>
+
+      {payingMember && (
+        <PaymentModal
+          open={true}
+          onClose={() => setPayingMember(null)}
+          member={payingMember}
+          defaultAmount={payingMember.outstanding || 1000}
+          defaultCategory="Monthly Contribution"
+          organizationName={profile?.organization || "FundFlow Community Trust"}
+          onPaymentSuccess={handleMemberPaymentSuccess}
+        />
+      )}
     </div>
   );
 }
@@ -1645,6 +2019,7 @@ const INCOME_CATS = ["Monthly Contribution", "Donation", "Membership Fee", "Spon
 function IncomeView({ token, profile }: { token: string; profile?: ProfileInfo }) {
   const [txs, setTxs] = useState<Transaction[]>([]);
   const [modal, setModal] = useState(false);
+  const [payModalOpen, setPayModalOpen] = useState(false);
   const [form, setForm] = useState({ description: "", amount: "", category: "Monthly Contribution", date: "" });
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
@@ -1683,14 +2058,50 @@ function IncomeView({ token, profile }: { token: string; profile?: ProfileInfo }
     setForm({ description: "", amount: "", category: "Monthly Contribution", date: "" });
   };
 
+  const handlePaymentSuccess = async (payment: {
+    amount: number;
+    category: string;
+    reference: string;
+    description: string;
+  }) => {
+    try {
+      await apiFetch("/api/transactions", {
+        method: "POST",
+        token,
+        body: {
+          type: "income",
+          category: payment.category,
+          amount: payment.amount,
+          description: payment.description,
+          date: new Date().toISOString().slice(0, 10),
+          reference: payment.reference,
+        },
+      });
+      loadTxs();
+    } catch (e) {
+      console.error("Income payment registration failed:", e);
+    }
+  };
+
   return (
     <div className="p-6 flex flex-col gap-5" style={{ fontFamily: "Outfit, sans-serif" }}>
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
         <div className="bg-card rounded-2xl p-4 border border-border">
           <p className="text-xs text-muted-foreground">Total Income Recorded</p>
           <p className="text-2xl font-semibold font-mono text-emerald-700 mt-1">{fmt(total)}</p>
         </div>
-        <Btn onClick={() => { setFieldErrors({}); setModal(true); }}><Plus size={15} /> Record Income</Btn>
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            onClick={() => setPayModalOpen(true)}
+            className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-emerald-50 text-emerald-800 hover:bg-emerald-100 border border-emerald-300 text-xs font-semibold shadow-xs transition-all cursor-pointer"
+          >
+            <QrCode size={15} className="text-emerald-700" />
+            <span>Receive Payment via QR</span>
+          </button>
+          <Btn onClick={() => { setFieldErrors({}); setModal(true); }}>
+            <Plus size={15} /> Record Income
+          </Btn>
+        </div>
       </div>
 
       <div className="bg-card rounded-2xl border border-border overflow-hidden">
@@ -1707,7 +2118,7 @@ function IncomeView({ token, profile }: { token: string; profile?: ProfileInfo }
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-muted/50 border-b border-border">
-                {["Description", "Category", "Reference", "Date", "Amount", "Status"].map(h => (
+                {["Description", "Category", "Reference", "Date", "Amount", "Status", "Receipt"].map(h => (
                   <th key={h} className="text-left px-5 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wide">{h}</th>
                 ))}
               </tr>
@@ -1721,6 +2132,27 @@ function IncomeView({ token, profile }: { token: string; profile?: ProfileInfo }
                   <td className="px-5 py-3.5 font-mono text-xs text-muted-foreground">{fmtDate(tx.date)}</td>
                   <td className="px-5 py-3.5 font-mono font-semibold text-emerald-700">+{fmt(tx.amount)}</td>
                   <td className="px-5 py-3.5"><Badge label={tx.status} variant={tx.status === "completed" ? "success" : "warning"} /></td>
+                  <td className="px-5 py-3.5">
+                    <button
+                      onClick={() =>
+                        exportPaymentReceiptPDF({
+                          transactionId: tx.reference || `TXN-${tx.id}`,
+                          payerName: "Organization Contributor",
+                          amount: tx.amount,
+                          category: tx.category,
+                          paymentMethod: "Electronic Transfer",
+                          paymentDate: tx.date,
+                          organizationName: profile?.organization || "FundFlow Community Trust",
+                          description: tx.description,
+                        })
+                      }
+                      title="Download Money Receipt (PDF)"
+                      className="flex items-center gap-1 text-xs text-emerald-700 bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1 rounded-lg border border-emerald-200 transition-colors cursor-pointer"
+                    >
+                      <Download size={12} />
+                      <span>Receipt</span>
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -1741,6 +2173,13 @@ function IncomeView({ token, profile }: { token: string; profile?: ProfileInfo }
           </div>
         </div>
       </Modal>
+
+      <PaymentModal
+        open={payModalOpen}
+        onClose={() => setPayModalOpen(false)}
+        organizationName={profile?.organization || "FundFlow Community Trust"}
+        onPaymentSuccess={handlePaymentSuccess}
+      />
     </div>
   );
 }
@@ -2830,6 +3269,7 @@ function MemberHomeView({ token, userEmail }: { token: string; userEmail: string
   const [announcements, setAnn] = useState<Announcement[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [payModalOpen, setPayModalOpen] = useState(false);
 
   useEffect(() => {
     apiFetch<Member[]>("/api/members", { token }).then(data => {
@@ -2850,10 +3290,62 @@ function MemberHomeView({ token, userEmail }: { token: string; userEmail: string
   const totalExpenses = transactions.filter(t => t.type === "expense").reduce((s, t) => s + t.amount, 0);
   const activeMembers = members.filter(m => m.status === "active").length;
 
+  const handlePaymentSuccess = (payment: {
+    amount: number;
+    category: string;
+    reference: string;
+    method: string;
+    description: string;
+  }) => {
+    const newTx: Transaction = {
+      id: String(Date.now()),
+      type: "income",
+      category: payment.category,
+      amount: payment.amount,
+      description: payment.description,
+      date: new Date().toISOString().slice(0, 10),
+      reference: payment.reference,
+      status: "completed",
+    };
+
+    setMe(prev => prev ? ({
+      ...prev,
+      contributions: prev.contributions + payment.amount,
+      outstanding: Math.max(0, prev.outstanding - payment.amount),
+    }) : null);
+
+    setMyTxs(prev => [newTx, ...prev]);
+    setTransactions(prev => [newTx, ...prev]);
+
+    // Persist to backend
+    apiFetch("/api/transactions", {
+      method: "POST",
+      token,
+      body: {
+        type: "income",
+        category: payment.category,
+        amount: payment.amount,
+        description: payment.description,
+        date: new Date().toISOString().slice(0, 10),
+        reference: payment.reference,
+      },
+    }).catch(() => {});
+  };
+
+  const handleDownloadCertificate = () => {
+    if (!me) return;
+    exportContributionCertificatePDF({
+      member: me,
+      organizationName: "FundFlow Community Trust",
+      year: new Date().getFullYear().toString(),
+      totalContributions: me.contributions,
+    });
+  };
+
   return (
     <div className="p-6 flex flex-col gap-6" style={{ fontFamily: "Outfit, sans-serif" }}>
-      {/* Welcome */}
-      <div className="rounded-2xl p-6 border border-border relative overflow-hidden"
+      {/* Welcome & Certificate action */}
+      <div className="rounded-2xl p-6 border border-border relative overflow-hidden flex flex-col sm:flex-row sm:items-center justify-between gap-4"
         style={{ background: "linear-gradient(135deg, #09182A 0%, #0B4832 100%)" }}>
         <div className="absolute inset-0 opacity-10" style={{ backgroundImage: "radial-gradient(circle at 70% 60%, #14C768 0%, transparent 55%)" }} />
         <div className="relative z-10 flex items-center gap-4">
@@ -2864,6 +3356,14 @@ function MemberHomeView({ token, userEmail }: { token: string; userEmail: string
             <p className="text-white/60 text-xs mt-1">Member since {fmtDate(me.joined)}</p>
           </div>
         </div>
+
+        <button
+          onClick={handleDownloadCertificate}
+          className="relative z-10 flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-semibold border border-white/20 backdrop-blur-sm transition-all cursor-pointer w-fit"
+        >
+          <FileCheck size={15} className="text-emerald-400" />
+          <span>Annual Contribution Certificate (PDF)</span>
+        </button>
       </div>
 
       {/* Stats */}
@@ -2903,20 +3403,38 @@ function MemberHomeView({ token, userEmail }: { token: string; userEmail: string
       </div>
 
       {/* Donate / Payment Section */}
-      <div className="rounded-2xl border border-border bg-gradient-to-br from-emerald-50 to-white p-5 shadow-sm">
+      <div className="rounded-2xl border border-emerald-200/80 bg-gradient-to-br from-emerald-50/80 via-white to-emerald-50/30 p-5 shadow-xs">
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
-            <p className="text-sm font-medium text-emerald-700">Make a contribution</p>
-            <h3 className="font-semibold text-foreground mt-1" style={{ fontFamily: "Fraunces, serif" }}>Donate or pay your monthly dues</h3>
-            <p className="text-sm text-muted-foreground mt-2 max-w-xl">
-              Support the organization securely with a quick payment. Your contribution helps fund welfare programs, events, and community initiatives.
+            <div className="flex items-center gap-2">
+              <span className="px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-mono font-bold">
+                INSTANT RECONCILE
+              </span>
+              <p className="text-xs font-semibold text-emerald-800">Direct QR & Mobile Checkout</p>
+            </div>
+            <h3 className="font-semibold text-foreground text-lg mt-1" style={{ fontFamily: "Fraunces, serif" }}>
+              Donate or pay your monthly dues
+            </h3>
+            <p className="text-xs text-muted-foreground mt-1 max-w-xl">
+              Support the organization securely with a quick payment via bKash, Nagad, Rocket, or Card. Instant digital receipt and live ledger reconciliation.
             </p>
           </div>
-          <div className="rounded-2xl border border-emerald-200 bg-white p-4 min-w-[220px]">
-            <p className="text-xs text-muted-foreground">Suggested amount</p>
-            <p className="text-2xl font-semibold font-mono text-foreground mt-1">Tk 1,000</p>
-            <button className="mt-3 w-full rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-emerald-700 transition-colors">
-              Pay Now
+          <div className="rounded-2xl border border-emerald-200 bg-white p-4 min-w-[240px] shadow-xs">
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-muted-foreground">Amount to pay:</span>
+              <span className="font-mono font-bold text-emerald-800">
+                {me.outstanding > 0 ? fmt(me.outstanding) : "Tk 1,000"}
+              </span>
+            </div>
+            <p className="text-2xl font-semibold font-mono text-foreground mt-1">
+              {me.outstanding > 0 ? fmt(me.outstanding) : "Tk 1,000"}
+            </p>
+            <button
+              onClick={() => setPayModalOpen(true)}
+              className="mt-3 w-full rounded-xl bg-emerald-700 hover:bg-emerald-800 px-4 py-2.5 text-xs font-semibold text-white shadow-xs transition-colors flex items-center justify-center gap-2 cursor-pointer"
+            >
+              <QrCode size={14} />
+              <span>Pay Now via QR / Wallet</span>
             </button>
           </div>
         </div>
@@ -2924,14 +3442,15 @@ function MemberHomeView({ token, userEmail }: { token: string; userEmail: string
 
       {/* Recent Activity */}
       <div className="bg-card rounded-2xl border border-border overflow-hidden">
-        <div className="px-5 py-4 border-b border-border">
+        <div className="px-5 py-4 border-b border-border flex items-center justify-between">
           <h3 className="font-semibold" style={{ fontFamily: "Fraunces, serif" }}>Recent Contribution Activity</h3>
+          <span className="text-xs text-muted-foreground font-mono">{myTxs.length} records</span>
         </div>
         <div className="flex flex-col divide-y divide-border">
           {myTxs.map(tx => (
             <div key={tx.id} className="flex items-center justify-between px-5 py-3.5 hover:bg-muted/20 transition-colors">
               <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center">
+                <div className="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center flex-shrink-0">
                   <CreditCard size={14} className="text-emerald-600" />
                 </div>
                 <div>
@@ -2939,7 +3458,30 @@ function MemberHomeView({ token, userEmail }: { token: string; userEmail: string
                   <p className="text-xs text-muted-foreground font-mono">{fmtDate(tx.date)}</p>
                 </div>
               </div>
-              <span className="font-mono text-sm font-semibold text-emerald-700">+{fmt(tx.amount)}</span>
+              <div className="flex items-center gap-3">
+                <span className="font-mono text-sm font-semibold text-emerald-700">+{fmt(tx.amount)}</span>
+                <button
+                  onClick={() =>
+                    exportPaymentReceiptPDF({
+                      transactionId: tx.reference || `TXN-${tx.id}`,
+                      payerName: me.name,
+                      payerEmail: me.email,
+                      payerPhone: me.phone,
+                      amount: tx.amount,
+                      category: tx.category,
+                      paymentMethod: "Electronic Transfer",
+                      paymentDate: tx.date,
+                      description: tx.description,
+                      remainingOutstanding: me.outstanding,
+                    })
+                  }
+                  title="Download Electronic Receipt Voucher (PDF)"
+                  className="flex items-center gap-1 text-xs text-emerald-700 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1 rounded-lg border border-emerald-200 transition-colors cursor-pointer"
+                >
+                  <Download size={11} />
+                  <span>Receipt</span>
+                </button>
+              </div>
             </div>
           ))}
         </div>
@@ -2962,6 +3504,17 @@ function MemberHomeView({ token, userEmail }: { token: string; userEmail: string
           ))}
         </div>
       </div>
+
+      {/* Payment Modal */}
+      <PaymentModal
+        open={payModalOpen}
+        onClose={() => setPayModalOpen(false)}
+        member={me}
+        defaultAmount={me.outstanding > 0 ? me.outstanding : 1000}
+        defaultCategory="Monthly Contribution"
+        organizationName="FundFlow Community Trust"
+        onPaymentSuccess={handlePaymentSuccess}
+      />
     </div>
   );
 }
@@ -2978,7 +3531,21 @@ const VIEW_TITLES: Partial<Record<View, { title: string; subtitle: string }>> = 
   "member-home": { title: "My Dashboard", subtitle: "Your personal financial overview" },
 };
 
-function AppShell({ role, token, userName, userEmail, onLogout }: { role: Role; token: string; userName: string; userEmail: string; onLogout: () => void }) {
+function AppShell({
+  role,
+  token,
+  userName,
+  userEmail,
+  orgName,
+  onLogout,
+}: {
+  role: Role;
+  token: string;
+  userName: string;
+  userEmail: string;
+  orgName?: string;
+  onLogout: () => void;
+}) {
   const defaultView: View = role === "admin" ? "dashboard" : "member-home";
   const [view, setView] = useState<View>(defaultView);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -2988,8 +3555,8 @@ function AppShell({ role, token, userName, userEmail, onLogout }: { role: Role; 
   const [profile, setProfile] = useState<ProfileInfo>({
     name: userName,
     email: userEmail,
-    phone: "+234 801 234 5678",
-    organization: "FundFlow Community Trust",
+    phone: "+880 1700 000000",
+    organization: orgName || "FundFlow Community Trust",
     role,
     initials: userName.split(" ").map((w: string) => w[0]).join("").slice(0, 2).toUpperCase(),
   });
@@ -3046,7 +3613,7 @@ function AppShell({ role, token, userName, userEmail, onLogout }: { role: Role; 
           </div>
           <Input label="Full Name" value={profileForm.name} onChange={v => setProfileForm(f => ({ ...f, name: v }))} placeholder="Your full name" />
           <Input label="Email Address" value={profileForm.email} onChange={v => setProfileForm(f => ({ ...f, email: v }))} type="email" placeholder="you@example.com" />
-          <Input label="Phone Number" value={profileForm.phone} onChange={v => setProfileForm(f => ({ ...f, phone: v }))} placeholder="+234 800 000 0000" />
+          <Input label="Phone Number" value={profileForm.phone} onChange={v => setProfileForm(f => ({ ...f, phone: v }))} placeholder="+880 1700 000000" />
           <Input label="Organization" value={profileForm.organization} onChange={v => setProfileForm(f => ({ ...f, organization: v }))} placeholder="Organization name" />
           <div className="flex gap-3 mt-1">
             <Btn onClick={() => setEditProfileOpen(false)} variant="ghost" className="flex-1 justify-center">Cancel</Btn>
@@ -3061,7 +3628,14 @@ function AppShell({ role, token, userName, userEmail, onLogout }: { role: Role; 
 /* ─────────────────────────── ROOT ─────────────────────────── */
 export default function App() {
   const [page, setPage] = useState<AppPage>("landing");
-  const [auth, setAuth] = useState<{ role: Role; token: string; name: string; email: string } | null>(null);
+  const [auth, setAuth] = useState<{
+    role: Role;
+    token: string;
+    name: string;
+    email: string;
+    orgName?: string;
+    orgId?: string;
+  } | null>(null);
 
   // Restore auth from localStorage on mount
   useEffect(() => {
@@ -3079,11 +3653,24 @@ export default function App() {
   };
 
   if (page === "landing") return <LandingPage onGetStarted={() => setPage("login")} />;
-  if (page === "login" || !auth) return (
-    <LoginView
-      onLogin={(role, token, name, email) => { setAuth({ role, token, name, email }); setPage("app"); }}
-      onBack={() => setPage("landing")}
+  if (page === "login" || !auth)
+    return (
+      <LoginView
+        onLogin={(role, token, name, email, orgName, orgId) => {
+          setAuth({ role, token, name, email, orgName, orgId });
+          setPage("app");
+        }}
+        onBack={() => setPage("landing")}
+      />
+    );
+  return (
+    <AppShell
+      role={auth.role}
+      token={auth.token}
+      userName={auth.name}
+      userEmail={auth.email}
+      orgName={auth.orgName}
+      onLogout={handleLogout}
     />
   );
-  return <AppShell role={auth.role} token={auth.token} userName={auth.name} userEmail={auth.email} onLogout={handleLogout} />;
 }

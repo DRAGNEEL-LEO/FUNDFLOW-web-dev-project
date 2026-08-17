@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowDownRight, ArrowUpRight, Check, Edit2, LogOut, Settings, Trash2, Wallet, X } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, Edit2, LogOut, Settings, Wallet, X } from "lucide-react";
 import type { ProfileInfo, Role } from "../types";
 
 export const fmt = (n: number) => `Tk ${n.toLocaleString()}`;
@@ -78,11 +78,35 @@ export function Modal({ open, onClose, title, children }: { open: boolean; onClo
   );
 }
 
-export function Input({ label, value, onChange, type = "text", placeholder }: { label: string; value: string; onChange: (v: string) => void; type?: string; placeholder?: string }) {
+export function Input({
+  label,
+  value,
+  onChange,
+  type = "text",
+  placeholder,
+  error,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  type?: string;
+  placeholder?: string;
+  error?: string;
+}) {
   return (
     <div className="flex flex-col gap-1.5">
       <label className="text-sm font-medium text-foreground">{label}</label>
-      <input type={type} value={value} placeholder={placeholder} onChange={e => onChange(e.target.value)} className="px-3 py-2.5 rounded-lg border border-border bg-input-background text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent transition-all" />
+      <input
+        type={type}
+        value={value}
+        placeholder={placeholder}
+        onChange={e => onChange(e.target.value)}
+        className={cn(
+          "px-3 py-2.5 rounded-lg border bg-input-background text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 transition-all",
+          error ? "border-red-500 focus:ring-red-500" : "border-border focus:ring-ring focus:border-transparent"
+        )}
+      />
+      {error && <p className="text-xs text-red-600 font-medium mt-0.5">{error}</p>}
     </div>
   );
 }
@@ -98,8 +122,23 @@ export function Select({ label, value, onChange, options }: { label: string; val
   );
 }
 
-export function Btn({ children, onClick, variant = "primary", size = "md", className }: { children: React.ReactNode; onClick?: () => void; variant?: "primary" | "secondary" | "ghost" | "danger"; size?: "sm" | "md"; className?: string }) {
-  const base = "inline-flex items-center gap-2 font-medium rounded-lg transition-all cursor-pointer border";
+export function Btn({
+  children,
+  onClick,
+  variant = "primary",
+  size = "md",
+  className,
+  disabled,
+}: {
+  children: React.ReactNode;
+  onClick?: () => void;
+  variant?: "primary" | "secondary" | "ghost" | "danger";
+  size?: "sm" | "md";
+  className?: string;
+  disabled?: boolean;
+}) {
+  const base =
+    "inline-flex items-center gap-2 font-medium rounded-lg transition-all cursor-pointer border disabled:opacity-50 disabled:cursor-not-allowed";
   const variants = {
     primary: "bg-primary text-primary-foreground border-primary hover:opacity-90",
     secondary: "bg-secondary text-secondary-foreground border-secondary hover:bg-secondary/80",
@@ -107,7 +146,11 @@ export function Btn({ children, onClick, variant = "primary", size = "md", class
     danger: "bg-red-50 text-red-700 border-red-200 hover:bg-red-100",
   };
   const sizes = { sm: "px-3 py-1.5 text-sm", md: "px-4 py-2.5 text-sm" };
-  return <button onClick={onClick} className={cn(base, variants[variant], sizes[size], className)}>{children}</button>;
+  return (
+    <button onClick={onClick} disabled={disabled} className={cn(base, variants[variant], sizes[size], className)}>
+      {children}
+    </button>
+  );
 }
 
 export function SidebarLayout({ view, onView, role, onLogout, sidebarOpen, onClose, children }: { view: string; onView: (v: string) => void; role: Role; onLogout: () => void; sidebarOpen: boolean; onClose: () => void; children: React.ReactNode }) {

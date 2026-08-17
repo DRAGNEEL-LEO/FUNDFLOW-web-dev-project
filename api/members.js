@@ -13,7 +13,8 @@ export default async function handler(req, res) {
 
   if (req.method === "GET") {
     try {
-      const members = await collection.find({}).sort({ joined: -1 }).toArray();
+      const filter = user.orgId ? { $or: [{ orgId: user.orgId }, { orgId: { $exists: false } }] } : {};
+      const members = await collection.find(filter).sort({ joined: -1 }).toArray();
       return res.json(members);
     } catch (error) {
       console.error(error);
@@ -32,7 +33,19 @@ export default async function handler(req, res) {
 
     try {
       const { id, name, email, role, initials, joined, status, contributions, outstanding, phone } = req.body || {};
-      const doc = { id, name, email, role, initials, joined, status, contributions, outstanding, phone };
+      const doc = {
+        id,
+        orgId: user.orgId || "org_default",
+        name,
+        email,
+        role,
+        initials,
+        joined,
+        status,
+        contributions,
+        outstanding,
+        phone,
+      };
       await collection.insertOne(doc);
       return res.status(201).json(doc);
     } catch (error) {

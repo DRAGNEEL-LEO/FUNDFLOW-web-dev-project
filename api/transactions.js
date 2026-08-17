@@ -13,7 +13,8 @@ export default async function handler(req, res) {
 
   if (req.method === "GET") {
     try {
-      const transactions = await collection.find({}).sort({ date: -1 }).toArray();
+      const filter = user.orgId ? { $or: [{ orgId: user.orgId }, { orgId: { $exists: false } }] } : {};
+      const transactions = await collection.find(filter).sort({ date: -1 }).toArray();
       return res.json(transactions);
     } catch (error) {
       console.error(error);
@@ -32,7 +33,17 @@ export default async function handler(req, res) {
 
     try {
       const { id, type, category, amount, description, date, reference, status } = req.body || {};
-      const doc = { id, type, category, amount, description, date, reference, status };
+      const doc = {
+        id,
+        orgId: user.orgId || "org_default",
+        type,
+        category,
+        amount,
+        description,
+        date,
+        reference,
+        status,
+      };
       await collection.insertOne(doc);
       return res.status(201).json(doc);
     } catch (error) {

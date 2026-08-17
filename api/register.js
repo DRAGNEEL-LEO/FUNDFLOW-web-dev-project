@@ -34,11 +34,17 @@ export default async function handler(req, res) {
 
     const hashedPassword = await bcrypt.hash(password, 10);
 
+    const orgId = user.orgId || "org_default";
+    const orgName = user.orgName || "FundFlow Community Trust";
+
     const newUser = {
       email,
       password: hashedPassword,
       name,
       role,
+      orgId,
+      orgName,
+      phone: phone || "",
       createdAt: new Date().toISOString().slice(0, 10),
       createdBy: user.email,
     };
@@ -56,6 +62,7 @@ export default async function handler(req, res) {
 
       await membersCol.insertOne({
         id: String(Date.now()),
+        orgId,
         name,
         email,
         role: "member",
