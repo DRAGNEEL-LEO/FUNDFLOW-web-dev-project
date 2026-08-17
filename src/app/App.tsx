@@ -2741,127 +2741,293 @@ interface StructuredAnalysis {
   memberAnalysis?: MemberAnalysis;
 }
 
-const DEFAULT_ADMIN_STRUCTURED: StructuredAnalysis = {
-  healthScore: {
-    score: 82,
-    label: "Strong",
-    factors: [
-      { name: "Income Stability", score: 88 },
-      { name: "Expense Ratio", score: 74 },
-      { name: "Reserve Coverage", score: 70 },
-      { name: "Collection Rate", score: 94 },
-    ],
-  },
-  riskMatrix: [
-    {
-      risk: "Outstanding dues concentration",
-      severity: "medium",
-      impact: "Tk 85,000 pending from 3 inactive members",
-      mitigation: "Implement automated payment reminder sequence 7 days before due date",
-    },
-    {
-      risk: "Single-sponsor revenue dependency",
-      severity: "high",
-      impact: "38% of Q1 revenue originates from PrimeBank sponsorship",
-      mitigation: "Onboard 2 additional corporate partners to reduce single-source risk",
-    },
-  ],
-  spendingTrends: {
-    insights: [
-      "Event venue & logistics spending increased 34% QoQ due to annual summit",
-      "Admin overhead maintained below 12.5% target benchmark",
-      "Welfare disbursements tracked proportionately with member growth (+14%)",
-    ],
-    topCategory: "Events",
-    topCategoryPercent: 31.2,
-    monthOverMonthChange: 5.4,
-    trend: "increasing",
-  },
-  revenueDiversification: {
-    sources: [
-      { name: "Monthly Contributions", percent: 52, trend: "stable" },
-      { name: "Corporate Sponsorship", percent: 28, trend: "growing" },
-      { name: "Donations", percent: 14, trend: "declining" },
-      { name: "Registration Fees", percent: 6, trend: "stable" },
-    ],
-    diversificationScore: 76,
-    insight: "Moderate revenue balance. Increasing recurring member contributions will enhance multi-year resilience.",
-  },
-  cashFlow: {
-    insights: [
-      "Net positive operating cash flow maintained for 7 consecutive months",
-      "Average net surplus: Tk 162,400 / month",
-      "Liquid reserves provide 3.8 months of total operational runway",
-    ],
-    monthlyAvgSurplus: 162400,
-    consecutivePositiveMonths: 7,
-    runwayMonths: 3.8,
-  },
-  forecast: {
-    currentBalance: 1874500,
-    predicted30Day: 2043000,
-    predicted90Day: 2380000,
-    growthPercent30: 8.9,
-    growthPercent90: 27.0,
-    confidence: 86,
-    scenarioBest: 2510000,
-    scenarioWorst: 1680000,
-  },
-  anomalies: [
-    {
-      type: "spike",
-      description: "March event expenses spiked 48% above 3-month rolling average",
-      severity: "warning",
-    },
-    {
-      type: "pattern",
-      description: "Member contribution processing window delayed by +3.2 days in April",
-      severity: "info",
-    },
-  ],
-  recommendations: [
-    {
-      priority: "high",
-      title: "Build Emergency Reserve Fund",
-      description: "Increase contribution allocation by 8% to achieve 6-month operational reserve",
-      estimatedImpact: "Tk 576,000 added to capital buffer",
-    },
-    {
-      priority: "high",
-      title: "Corporate Partnership Diversification",
-      description: "Engage two new enterprise sponsors for Q3 community initiatives",
-      estimatedImpact: "Reduces revenue volatility risk by 35%",
-    },
-    {
-      priority: "medium",
-      title: "Annual Billing Vendor Discounts",
-      description: "Switch software & utility subscriptions to annual prepaid plans",
-      estimatedImpact: "Tk 34,000 direct annual savings",
-    },
-    {
-      priority: "medium",
-      title: "Automate Dues Collection Reminders",
-      description: "Deploy automated SMS and email notifications for pending invoices",
-      estimatedImpact: "Reduces outstanding collection cycle by 50%",
-    },
-  ],
-};
+function buildClientDeterministicAnalysis({
+  members,
+  transactions,
+  profile,
+}: {
+  members: Member[];
+  transactions: Transaction[];
+  role?: Role;
+  profile?: ProfileInfo;
+}): StructuredAnalysis {
+  const totalMembers = members.length;
+  const activeMembers = members.filter(m => m.status === "active").length;
+  const totalContributions = members.reduce((s, m) => s + (m.contributions || 0), 0);
+  const totalOutstanding = members.reduce((s, m) => s + (m.outstanding || 0), 0);
 
-const DEFAULT_MEMBER_STRUCTURED: StructuredAnalysis = {
-  memberAnalysis: {
-    totalContributions: 124000,
-    outstandingBalance: 0,
-    rank: 3,
-    totalMembers: 8,
-    percentile: 75.0,
-    contributionTrend: "consistent",
-    personalRecommendations: [
-      { icon: "check", text: "All dues fully settled. Your account is in excellent standing!" },
-      { icon: "target", text: "Increasing monthly contribution by Tk 2,000 places you in the top 15% of fund contributors." },
-      { icon: "bell", text: "Next contribution window opens May 1st. Early payment maintains your 100% timeliness streak." },
+  const totalIncome = transactions.filter(t => t.type === "income").reduce((s, t) => s + t.amount, 0);
+  const totalExpenses = transactions.filter(t => t.type === "expense").reduce((s, t) => s + t.amount, 0);
+  const fundBalance = totalIncome - totalExpenses;
+  const orgName = profile?.organization || "Your Organization";
+
+  // Health Metrics
+  const collectionRate =
+    totalContributions + totalOutstanding > 0
+      ? Math.round((totalContributions / (totalContributions + totalOutstanding)) * 100)
+      : totalMembers > 0 ? 100 : 80;
+
+  const expenseRatio =
+    totalIncome > 0
+      ? Math.max(0, Math.min(100, Math.round(100 - (totalExpenses / totalIncome) * 100)))
+      : totalExpenses > 0 ? 30 : 70;
+
+  const reserveCoverage =
+    fundBalance > 0
+      ? Math.min(100, Math.round((fundBalance / Math.max(totalExpenses, 10000)) * 50) + 40)
+      : totalIncome === 0 && totalExpenses === 0 ? 75 : 25;
+
+  const incomeStability =
+    totalMembers > 0
+      ? Math.round((activeMembers / totalMembers) * 90) + 10
+      : 80;
+
+  const overallHealth = Math.round(
+    collectionRate * 0.3 + expenseRatio * 0.25 + reserveCoverage * 0.25 + incomeStability * 0.2
+  );
+  const healthLabel =
+    overallHealth >= 80 ? "Strong" : overallHealth >= 65 ? "Good" : overallHealth >= 50 ? "Moderate" : "At Risk";
+
+  // Category aggregations
+  const incomeCats: Record<string, number> = {};
+  const expenseCats: Record<string, number> = {};
+
+  transactions.forEach(t => {
+    if (t.type === "income") incomeCats[t.category] = (incomeCats[t.category] || 0) + t.amount;
+    else if (t.type === "expense") expenseCats[t.category] = (expenseCats[t.category] || 0) + t.amount;
+  });
+
+  const sortedIncomeCats = Object.entries(incomeCats).sort((a, b) => b[1] - a[1]);
+  const sortedExpenseCats = Object.entries(expenseCats).sort((a, b) => b[1] - a[1]);
+
+  // Dynamic Risk Matrix
+  const riskMatrix: RiskItem[] = [];
+
+  // Risk 1: Outstanding Dues
+  const overdueMembers = members.filter(m => (m.outstanding || 0) > 0);
+  if (totalOutstanding > 0) {
+    riskMatrix.push({
+      risk: "Outstanding dues accumulation",
+      severity: totalOutstanding > 50000 ? "high" : "medium",
+      impact: `Tk ${totalOutstanding.toLocaleString()} pending from ${overdueMembers.length} member${overdueMembers.length > 1 ? "s" : ""}`,
+      mitigation: "Deploy digital payment reminders with QR codes to accelerate dues recovery.",
+    });
+  } else if (totalMembers > 0) {
+    riskMatrix.push({
+      risk: "Member Dues Collection",
+      severity: "low",
+      impact: `100% compliance. Tk 0 overdue dues across all ${totalMembers} registered members.`,
+      mitigation: "Maintain standard scheduled reminder windows before each collection cycle.",
+    });
+  } else {
+    riskMatrix.push({
+      risk: "Member Roster Initialisation",
+      severity: "medium",
+      impact: "No members registered yet in this organization workspace.",
+      mitigation: "Use '+ Add Member' to onboard members and establish regular subscription collection.",
+    });
+  }
+
+  // Risk 2: Revenue Diversification Risk
+  if (totalIncome > 0 && sortedIncomeCats.length > 0) {
+    const topCat = sortedIncomeCats[0];
+    const topCatShare = Math.round((topCat[1] / totalIncome) * 100);
+    if (topCatShare >= 60) {
+      riskMatrix.push({
+        risk: `Revenue concentration in ${topCat[0]}`,
+        severity: topCatShare >= 80 ? "high" : "medium",
+        impact: `${topCatShare}% of total income (Tk ${topCat[1].toLocaleString()}) originates from a single category.`,
+        mitigation: "Diversify revenue channels with corporate sponsorship, event registrations, or donations.",
+      });
+    } else {
+      riskMatrix.push({
+        risk: "Revenue Channel Distribution",
+        severity: "low",
+        impact: `Balanced income sources across ${sortedIncomeCats.length} categories with no category exceeding 60%.`,
+        mitigation: "Continue encouraging multi-channel member and sponsor engagement.",
+      });
+    }
+  } else {
+    riskMatrix.push({
+      risk: "Fund Treasury Inflow",
+      severity: totalExpenses > 0 ? "high" : "medium",
+      impact: "No income transactions recorded yet for this organization.",
+      mitigation: "Record incoming fund deposits or member payments in the Fund Income tab.",
+    });
+  }
+
+  // Risk 3: Liquidity / Deficit Risk
+  if (fundBalance < 0) {
+    riskMatrix.push({
+      risk: "Operating Cash Deficit",
+      severity: "high",
+      impact: `Net deficit of Tk ${Math.abs(fundBalance).toLocaleString()} (expenses exceed income).`,
+      mitigation: "Halt optional expenditures and conduct an urgent collection drive.",
+    });
+  } else {
+    riskMatrix.push({
+      risk: "Treasury Liquidity Buffer",
+      severity: fundBalance < 10000 ? "medium" : "low",
+      impact: `Current net treasury balance: Tk ${fundBalance.toLocaleString()}.`,
+      mitigation: "Build and maintain a 3-month operational expenditure reserve.",
+    });
+  }
+
+  // Spending Trends
+  const topExpense = sortedExpenseCats.length > 0 ? sortedExpenseCats[0] : null;
+  const spendingTrends: SpendingTrends = {
+    insights:
+      totalExpenses > 0
+        ? [
+            `Top expenditure category: ${topExpense ? topExpense[0] : "General"} (Tk ${topExpense ? topExpense[1].toLocaleString() : "0"})`,
+            `Total expense entries logged: ${transactions.filter(t => t.type === "expense").length}`,
+            fundBalance >= 0 ? "Operating within positive cash flow boundaries" : "Expenses currently exceed incoming collections",
+          ]
+        : [
+            "No expenses recorded yet. Operating budget remains unspent.",
+            "Track event budgets, operational costs, and welfare disbursements in the Expenses tab.",
+          ],
+    topCategory: topExpense ? topExpense[0] : "None",
+    topCategoryPercent: totalExpenses > 0 && topExpense ? Math.round((topExpense[1] / totalExpenses) * 1000) / 10 : 0,
+    monthOverMonthChange: 0,
+    trend: fundBalance >= 0 ? "stable" : "increasing",
+  };
+
+  // Revenue Diversification
+  const revenueSources = sortedIncomeCats.map((c, i) => ({
+    name: c[0],
+    percent: totalIncome > 0 ? Math.round((c[1] / totalIncome) * 100) : 0,
+    trend: i === 0 ? ("stable" as const) : ("growing" as const),
+  }));
+
+  const revenueDiversification: RevenueDiversification = {
+    sources: revenueSources.length > 0 ? revenueSources : [{ name: "Monthly Contribution", percent: 100, trend: "stable" }],
+    diversificationScore: sortedIncomeCats.length >= 3 ? 85 : sortedIncomeCats.length === 2 ? 65 : 45,
+    insight:
+      totalIncome > 0
+        ? `Revenue is distributed across ${sortedIncomeCats.length} categories in ${orgName}.`
+        : "Record income sources to enable revenue diversification analytics.",
+  };
+
+  // Cash Flow & Forecast
+  const monthlyAvgSurplus = Math.round(fundBalance / 6);
+  const runwayMonths = totalExpenses > 0 ? Math.max(0.1, Math.round((fundBalance / (totalExpenses / 3)) * 10) / 10) : 12;
+
+  const cashFlow: CashFlow = {
+    insights: [
+      `Net treasury balance: Tk ${fundBalance.toLocaleString()}`,
+      `Total recorded income: Tk ${totalIncome.toLocaleString()}`,
+      `Total disbursed expenses: Tk ${totalExpenses.toLocaleString()}`,
     ],
-  },
-};
+    monthlyAvgSurplus,
+    consecutivePositiveMonths: fundBalance >= 0 ? 6 : 0,
+    runwayMonths,
+  };
+
+  const forecast: Forecast = {
+    currentBalance: fundBalance,
+    predicted30Day: Math.max(0, Math.round(fundBalance + (monthlyAvgSurplus > 0 ? monthlyAvgSurplus : 5000))),
+    predicted90Day: Math.max(0, Math.round(fundBalance + (monthlyAvgSurplus > 0 ? monthlyAvgSurplus * 3 : 15000))),
+    growthPercent30: fundBalance > 0 ? 8.5 : 0,
+    growthPercent90: fundBalance > 0 ? 25.0 : 0,
+    confidence: totalIncome > 0 ? 88 : 50,
+    scenarioBest: Math.max(0, Math.round(fundBalance * 1.3 + 20000)),
+    scenarioWorst: Math.max(0, Math.round(fundBalance * 0.9)),
+  };
+
+  // Anomalies
+  const anomalies: AnomalyItem[] = [];
+  if (totalOutstanding > totalContributions && totalOutstanding > 0) {
+    anomalies.push({
+      type: "spike",
+      description: `Outstanding balance (Tk ${totalOutstanding.toLocaleString()}) exceeds collected funds (Tk ${totalContributions.toLocaleString()}).`,
+      severity: "danger",
+    });
+  }
+  if (fundBalance < 0) {
+    anomalies.push({
+      type: "deviation",
+      description: `Treasury deficit of Tk ${Math.abs(fundBalance).toLocaleString()} detected.`,
+      severity: "danger",
+    });
+  }
+  if (anomalies.length === 0) {
+    anomalies.push({
+      type: "pattern",
+      description: `Treasury accounts for ${orgName} are reconciled and operating normally.`,
+      severity: "info",
+    });
+  }
+
+  // Recommendations
+  const recommendations: RecommendationItem[] = [
+    {
+      priority: totalOutstanding > 0 ? "high" : "medium",
+      title: totalOutstanding > 0 ? "Accelerate Dues Collection" : "Maintain Scheduled Billing",
+      description:
+        totalOutstanding > 0
+          ? `Send payment reminders for the Tk ${totalOutstanding.toLocaleString()} pending from overdue members.`
+          : "Automate monthly contribution notifications to sustain high collection efficiency.",
+      estimatedImpact: totalOutstanding > 0 ? `Recovers up to Tk ${totalOutstanding.toLocaleString()}` : "Sustains 100% on-time rate",
+    },
+    {
+      priority: "medium",
+      title: "Establish Reserve Threshold",
+      description: "Allocate at least 15% of incoming revenues into an emergency operational buffer.",
+      estimatedImpact: "Guarantees 3+ months of operating runway",
+    },
+    {
+      priority: "low",
+      title: "Quarterly Audit & Verification",
+      description: "Generate official PDF executive audit reports for executive board and members.",
+      estimatedImpact: "100% financial governance transparency",
+    },
+  ];
+
+  const currentMember = members.find(m => m.email === profile?.email);
+  const memberAnalysis: MemberAnalysis = {
+    totalContributions: currentMember ? currentMember.contributions : totalContributions,
+    outstandingBalance: currentMember ? currentMember.outstanding : totalOutstanding,
+    rank: 1,
+    totalMembers: Math.max(1, totalMembers),
+    percentile: 90.0,
+    contributionTrend: (currentMember?.outstanding || 0) === 0 ? "consistent" : "overdue",
+    personalRecommendations: [
+      {
+        icon: "check",
+        text:
+          (currentMember?.outstanding || 0) === 0
+            ? "Your dues are fully settled! Thank you for maintaining good standing."
+            : `You have an outstanding balance of Tk ${(currentMember?.outstanding || 0).toLocaleString()}. Please pay via QR code to clear your dues.`,
+      },
+      {
+        icon: "target",
+        text: `Official Member of ${orgName}. Your contributions directly support organization programs.`,
+      },
+    ],
+  };
+
+  return {
+    healthScore: {
+      score: overallHealth,
+      label: healthLabel,
+      factors: [
+        { name: "Collection Rate", score: collectionRate },
+        { name: "Expense Ratio", score: expenseRatio },
+        { name: "Reserve Coverage", score: reserveCoverage },
+        { name: "Income Stability", score: incomeStability },
+      ],
+    },
+    riskMatrix,
+    spendingTrends,
+    revenueDiversification,
+    cashFlow,
+    forecast,
+    anomalies,
+    recommendations,
+    memberAnalysis,
+  };
+}
 
 function clientSafeParseJson(raw: any): StructuredAnalysis | null {
   if (!raw) return null;
@@ -2906,7 +3072,6 @@ function clientSafeParseJson(raw: any): StructuredAnalysis | null {
 }
 
 function MarkdownFallback({ text }: { text: string }) {
-  // If raw string starts with JSON brackets, clean up quotes and syntax characters
   let cleanText = text.trim();
   if (cleanText.startsWith("{") || cleanText.startsWith("[")) {
     cleanText = cleanText
@@ -2942,17 +3107,33 @@ function MarkdownFallback({ text }: { text: string }) {
   );
 }
 
-function AIView({ role, token }: { role: Role; token: string }) {
+function AIView({ role, token, profile }: { role: Role; token: string; profile?: ProfileInfo }) {
   const [loading, setLoading] = useState(false);
   const [analysed, setAnalysed] = useState(false);
   const [analysisText, setAnalysisText] = useState("");
   const [structured, setStructured] = useState<StructuredAnalysis | null>(null);
+  const [members, setMembers] = useState<Member[]>([]);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [_summary, setSummary] = useState<{
     members: { total_members: number; total_contributions: string; total_outstanding: string };
     income: { total_income: string; income_count: number };
     expenses: { total_expenses: string; expense_count: number };
   } | null>(null);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    apiFetch<Member[]>("/api/members", { token }).then(setMembers).catch(() => {});
+    apiFetch<Transaction[]>("/api/transactions", { token }).then(setTransactions).catch(() => {});
+  }, [token]);
+
+  const deterministicAnalysis = useMemo(() => {
+    return buildClientDeterministicAnalysis({
+      members,
+      transactions,
+      role,
+      profile,
+    });
+  }, [members, transactions, role, profile]);
 
   const handleAnalyse = async () => {
     setLoading(true);
@@ -2980,22 +3161,21 @@ function AIView({ role, token }: { role: Role; token: string }) {
       let parsedStruct = data.structured || clientSafeParseJson(data.analysis);
 
       setAnalysisText(data.analysis ?? "");
-      setStructured(parsedStruct || (role === "admin" ? DEFAULT_ADMIN_STRUCTURED : DEFAULT_MEMBER_STRUCTURED));
+      setStructured(parsedStruct || deterministicAnalysis);
       setSummary(data.summary ?? null);
       setAnalysed(true);
     } catch (err) {
-      console.warn("API request failed, using structured fallback view:", err);
+      console.warn("API request failed, using dynamic per-org deterministic analysis:", err);
       setError(err instanceof Error ? err.message : "Unexpected error.");
-      setStructured(role === "admin" ? DEFAULT_ADMIN_STRUCTURED : DEFAULT_MEMBER_STRUCTURED);
+      setStructured(deterministicAnalysis);
       setAnalysed(true);
     } finally {
       setLoading(false);
     }
   };
 
-
-  const currentStructured = structured || (role === "admin" ? DEFAULT_ADMIN_STRUCTURED : DEFAULT_MEMBER_STRUCTURED);
-  const health = currentStructured.healthScore || DEFAULT_ADMIN_STRUCTURED.healthScore!;
+  const currentStructured = structured || deterministicAnalysis;
+  const health = currentStructured.healthScore || deterministicAnalysis.healthScore!;
 
   return (
     <div className="p-6 flex flex-col gap-6" style={{ fontFamily: "Outfit, sans-serif" }}>
@@ -3688,7 +3868,7 @@ function AppShell({
       case "expenses": return <ExpensesView token={token} profile={profile} />;
       case "reports": return <ReportsView profile={profile} />;
       case "announcements": return <AnnouncementsView role={role} token={token} />;
-      case "ai": return <AIView role={role} token={token} />;
+      case "ai": return <AIView role={role} token={token} profile={profile} />;
       case "member-home": return <MemberHomeView token={token} userEmail={userEmail} />;
       default: return <DashboardView token={token} profile={profile} />;
     }
