@@ -13,7 +13,12 @@ export default async function handler(req, res) {
 
   if (req.method === "GET") {
     try {
-      const filter = user.orgId ? { $or: [{ orgId: user.orgId }, { orgId: { $exists: false } }] } : {};
+      let filter = {};
+      if (user.orgId && user.orgId !== "org_default") {
+        filter = { orgId: user.orgId };
+      } else if (user.orgId === "org_default") {
+        filter = { $or: [{ orgId: "org_default" }, { orgId: { $exists: false } }] };
+      }
       const announcements = await collection.find(filter).sort({ date: -1 }).toArray();
       return res.json(announcements);
     } catch (error) {

@@ -1533,6 +1533,45 @@ function DashboardView({ token, profile }: { token: string; profile?: ProfileInf
   const activeMembers = members.filter(m => m.status === "active").length;
   const recent = transactions.slice(0, 6);
 
+  const monthlyData = useMemo(() => {
+    const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const now = new Date();
+    const map: Record<string, { month: string; income: number; expenses: number }> = {};
+
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const label = monthNames[d.getMonth()];
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+      map[key] = { month: label, income: 0, expenses: 0 };
+    }
+
+    transactions.forEach(t => {
+      if (!t.date) return;
+      const key = t.date.slice(0, 7);
+      if (map[key]) {
+        if (t.type === "income") map[key].income += t.amount;
+        else if (t.type === "expense") map[key].expenses += t.amount;
+      }
+    });
+
+    return Object.values(map);
+  }, [transactions]);
+
+  const expensePie = useMemo(() => {
+    const expenses = transactions.filter(t => t.type === "expense");
+    if (expenses.length === 0) return [];
+    const catMap: Record<string, number> = {};
+    expenses.forEach(t => {
+      catMap[t.category] = (catMap[t.category] || 0) + t.amount;
+    });
+    const colors = ["#0B4832", "#14C768", "#F59E0B", "#6366F1", "#EC4899", "#3B82F6", "#8B5CF6"];
+    return Object.entries(catMap).map(([name, value], idx) => ({
+      name,
+      value,
+      color: colors[idx % colors.length],
+    }));
+  }, [transactions]);
+
   return (
     <div className="p-6 flex flex-col gap-6" style={{ fontFamily: "Outfit, sans-serif" }}>
       {/* Top Action & Overview Bar */}
@@ -1563,8 +1602,8 @@ function DashboardView({ token, profile }: { token: string; profile?: ProfileInf
               transactionLimit: "all",
               includeAnnouncements: true,
               includeSignatures: true,
-              monthlyData: MONTHLY_DATA,
-              expensePie: EXPENSE_PIE,
+              monthlyData,
+              expensePie,
               members,
               transactions,
               announcements,
@@ -1587,10 +1626,10 @@ function DashboardView({ token, profile }: { token: string; profile?: ProfileInf
 
       {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard label="Total Fund Balance" value={fmt(balance)} sub="As of today" icon={Wallet} trend={8.9} color="balance" />
-        <StatCard label="Total Income" value={fmt(totalIncome)} sub="This period" icon={TrendingUp} trend={12.4} color="income" />
-        <StatCard label="Total Expenses" value={fmt(totalExpenses)} sub="This period" icon={TrendingDown} trend={-3.2} color="expense" />
-        <StatCard label="Active Members" value={String(activeMembers)} sub={`of ${members.length} total`} icon={Users} trend={6} color="members" />
+        <StatCard label="Total Fund Balance" value={fmt(balance)} sub="As of today" icon={Wallet} color="balance" />
+        <StatCard label="Total Income" value={fmt(totalIncome)} sub="Recorded total" icon={TrendingUp} color="income" />
+        <StatCard label="Total Expenses" value={fmt(totalExpenses)} sub="Disbursed total" icon={TrendingDown} color="expense" />
+        <StatCard label="Active Members" value={String(activeMembers)} sub={`of ${members.length} registered`} icon={Users} color="members" />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -1599,12 +1638,12 @@ function DashboardView({ token, profile }: { token: string; profile?: ProfileInf
           <div className="flex items-center justify-between mb-5">
             <div>
               <h3 className="font-semibold text-foreground" style={{ fontFamily: "Fraunces, serif" }}>Income vs Expenses</h3>
-              <p className="text-xs text-muted-foreground">Last 7 months overview</p>
+              <p className="text-xs text-muted-foreground">Rolling 7-month treasury overview</p>
             </div>
-            <Badge label="2024" variant="neutral" />
+            <Badge label={String(new Date().getFullYear())} variant="neutral" />
           </div>
           <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={MONTHLY_DATA} barGap={4}>
+            <BarChart data={monthlyData} barGap={4}>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.06)" vertical={false} />
               <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#6B6560", fontFamily: "DM Mono" }} axisLine={false} tickLine={false} />
               <YAxis tick={{ fontSize: 11, fill: "#6B6560", fontFamily: "DM Mono" }} axisLine={false} tickLine={false} tickFormatter={v => `৳${(v / 1000).toFixed(0)}k`} />
@@ -1617,28 +1656,40 @@ function DashboardView({ token, profile }: { token: string; profile?: ProfileInf
         </div>
 
         {/* Expense Breakdown */}
-        <div className="bg-card rounded-2xl p-5 border border-border">
-          <h3 className="font-semibold text-foreground mb-1" style={{ fontFamily: "Fraunces, serif" }}>Expense Categories</h3>
-          <p className="text-xs text-muted-foreground mb-4">Current period breakdown</p>
-          <ResponsiveContainer width="100%" height={160}>
-            <PieChart>
-              <Pie data={EXPENSE_PIE} cx="50%" cy="50%" innerRadius={45} outerRadius={75} paddingAngle={3} dataKey="value">
-                {EXPENSE_PIE.map((entry, i) => <Cell key={i} fill={entry.color} />)}
-              </Pie>
-              <Tooltip formatter={(v: number) => fmt(v)} contentStyle={{ borderRadius: 10, fontSize: 12, fontFamily: "DM Mono" }} />
-            </PieChart>
-          </ResponsiveContainer>
-          <div className="flex flex-col gap-2 mt-2">
-            {EXPENSE_PIE.map(item => (
-              <div key={item.name} className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: item.color }} />
-                  <span className="text-xs text-muted-foreground">{item.name}</span>
-                </div>
-                <span className="text-xs font-mono font-medium text-foreground">{fmt(item.value)}</span>
-              </div>
-            ))}
+        <div className="bg-card rounded-2xl p-5 border border-border flex flex-col justify-between">
+          <div>
+            <h3 className="font-semibold text-foreground mb-1" style={{ fontFamily: "Fraunces, serif" }}>Expense Categories</h3>
+            <p className="text-xs text-muted-foreground mb-4">Allocation by department</p>
           </div>
+          {expensePie.length === 0 ? (
+            <div className="py-10 text-center flex flex-col items-center justify-center text-muted-foreground gap-1.5">
+              <TrendingDown size={28} className="text-muted-foreground/50 mb-1" />
+              <p className="text-xs font-semibold text-foreground">No expenses recorded yet</p>
+              <p className="text-[11px] max-w-[200px] text-muted-foreground">Disbursements recorded in the Expenses tab will appear here.</p>
+            </div>
+          ) : (
+            <>
+              <ResponsiveContainer width="100%" height={160}>
+                <PieChart>
+                  <Pie data={expensePie} cx="50%" cy="50%" innerRadius={45} outerRadius={75} paddingAngle={3} dataKey="value">
+                    {expensePie.map((entry, i) => <Cell key={i} fill={entry.color} />)}
+                  </Pie>
+                  <Tooltip formatter={(v: number) => fmt(v)} contentStyle={{ borderRadius: 10, fontSize: 12, fontFamily: "DM Mono" }} />
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="flex flex-col gap-2 mt-2">
+                {expensePie.map(item => (
+                  <div key={item.name} className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: item.color }} />
+                      <span className="text-xs text-muted-foreground">{item.name}</span>
+                    </div>
+                    <span className="text-xs font-mono font-medium text-foreground">{fmt(item.value)}</span>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
         </div>
       </div>
 
@@ -1659,51 +1710,63 @@ function DashboardView({ token, profile }: { token: string; profile?: ProfileInf
               <span>Income PDF</span>
             </button>
             <button
-              onClick={() => exportExpenseReport(transactions, profile?.organization, EXPENSE_PIE, profile?.name)}
+              onClick={() => exportExpenseReport(transactions, profile?.organization, expensePie, profile?.name)}
               className="flex items-center gap-1 text-xs text-red-700 hover:text-red-800 bg-red-50 px-2.5 py-1.5 rounded-lg border border-red-200 transition-colors cursor-pointer"
               title="Export all expense transactions to PDF"
             >
               <Download size={13} />
               <span>Expense PDF</span>
             </button>
-            <Badge label={`${recent.length} shown`} variant="neutral" />
+            <Badge label={`${recent.length} records`} variant="neutral" />
           </div>
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-muted/50">
-                {["Description", "Category", "Date", "Amount", "Status"].map(h => (
-                  <th key={h} className="text-left px-5 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wide">{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {recent.map((tx, i) => (
-                <tr key={tx.id} className={cn("border-t border-border/50 hover:bg-muted/30 transition-colors", i % 2 === 0 ? "" : "bg-muted/10")}>
-                  <td className="px-5 py-3.5">
-                    <div className="flex items-center gap-3">
-                      <div className={cn("w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0",
-                        tx.type === "income" ? "bg-emerald-50 text-emerald-600" : "bg-red-50 text-red-500")}>
-                        {tx.type === "income" ? <ArrowUpRight size={14} /> : <ArrowDownRight size={14} />}
-                      </div>
-                      <span className="text-foreground font-medium">{tx.description}</span>
-                    </div>
-                  </td>
-                  <td className="px-5 py-3.5 text-muted-foreground">{tx.category}</td>
-                  <td className="px-5 py-3.5 font-mono text-xs text-muted-foreground">{fmtDate(tx.date)}</td>
-                  <td className={cn("px-5 py-3.5 font-mono font-semibold",
-                    tx.type === "income" ? "text-emerald-700" : "text-red-600")}>
-                    {tx.type === "income" ? "+" : "-"}{fmt(tx.amount)}
-                  </td>
-                  <td className="px-5 py-3.5">
-                    <Badge label={tx.status} variant={tx.status === "completed" ? "success" : "warning"} />
-                  </td>
+        {recent.length === 0 ? (
+          <div className="py-12 px-4 text-center text-muted-foreground flex flex-col items-center justify-center gap-2">
+            <div className="w-12 h-12 rounded-2xl bg-muted/60 flex items-center justify-center text-muted-foreground mb-1">
+              <TrendingUp size={22} />
+            </div>
+            <p className="text-sm font-semibold text-foreground">No transactions recorded yet</p>
+            <p className="text-xs text-muted-foreground max-w-sm">
+              Your organization financial ledger is currently empty. Record member collections or organizational expenses to populate this overview.
+            </p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-muted/50">
+                  {["Description", "Category", "Date", "Amount", "Status"].map(h => (
+                    <th key={h} className="text-left px-5 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wide">{h}</th>
+                  ))}
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {recent.map((tx, i) => (
+                  <tr key={tx.id} className={cn("border-t border-border/50 hover:bg-muted/30 transition-colors", i % 2 === 0 ? "" : "bg-muted/10")}>
+                    <td className="px-5 py-3.5">
+                      <div className="flex items-center gap-3">
+                        <div className={cn("w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0",
+                          tx.type === "income" ? "bg-emerald-50 text-emerald-600" : "bg-red-50 text-red-500")}>
+                          {tx.type === "income" ? <ArrowUpRight size={14} /> : <ArrowDownRight size={14} />}
+                        </div>
+                        <span className="text-foreground font-medium">{tx.description}</span>
+                      </div>
+                    </td>
+                    <td className="px-5 py-3.5 text-muted-foreground">{tx.category}</td>
+                    <td className="px-5 py-3.5 font-mono text-xs text-muted-foreground">{fmtDate(tx.date)}</td>
+                    <td className={cn("px-5 py-3.5 font-mono font-semibold",
+                      tx.type === "income" ? "text-emerald-700" : "text-red-600")}>
+                      {tx.type === "income" ? "+" : "-"}{fmt(tx.amount)}
+                    </td>
+                    <td className="px-5 py-3.5">
+                      <Badge label={tx.status} variant={tx.status === "completed" ? "success" : "warning"} />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       {/* Export Report Modal */}
@@ -1906,75 +1969,87 @@ function MembersView({ token, profile }: { token: string; profile?: ProfileInfo 
       </div>
 
       <div className="bg-card rounded-2xl border border-border overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-muted/50 border-b border-border">
-                {["Member", "Contact", "Joined", "Contributions", "Outstanding", "Status", "Actions"].map(h => (
-                  <th key={h} className="text-left px-5 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wide whitespace-nowrap">{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((m, i) => (
-                <tr key={m.id} className={cn("border-t border-border/50 hover:bg-muted/20 transition-colors", i % 2 !== 0 && "bg-muted/10")}>
-                  <td className="px-5 py-3.5">
-                    <div className="flex items-center gap-3">
-                      <Avatar initials={m.initials} size="sm" color={m.status === "active" ? "#0B4832" : "#9CA3AF"} />
-                      <span className="font-medium text-foreground">{m.name}</span>
-                    </div>
-                  </td>
-                  <td className="px-5 py-3.5 text-muted-foreground text-xs">
-                    <div>{m.email}</div>
-                    <div>{m.phone}</div>
-                  </td>
-                  <td className="px-5 py-3.5 font-mono text-xs text-muted-foreground">{fmtDate(m.joined)}</td>
-                  <td className="px-5 py-3.5 font-mono font-semibold text-emerald-700">{fmt(m.contributions)}</td>
-                  <td className="px-5 py-3.5 font-mono font-semibold">
-                    <span className={m.outstanding > 0 ? "text-amber-700" : "text-muted-foreground"}>
-                      {m.outstanding > 0 ? fmt(m.outstanding) : "—"}
-                    </span>
-                  </td>
-                  <td className="px-5 py-3.5">
-                    <Badge label={m.status} variant={m.status === "active" ? "success" : "neutral"} />
-                  </td>
-                  <td className="px-5 py-3.5">
-                    <div className="flex items-center gap-1.5">
-                      {m.outstanding > 0 && (
-                        <button
-                          onClick={() => setPayingMember(m)}
-                          title="Collect / Pay Dues via QR"
-                          className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 text-xs font-semibold cursor-pointer"
-                        >
-                          <CreditCard size={12} />
-                          <span>Pay</span>
-                        </button>
-                      )}
-                      <button
-                        onClick={() =>
-                          exportContributionCertificatePDF({
-                            member: m,
-                            organizationName: profile?.organization || "FundFlow Community Trust",
-                          })
-                        }
-                        title="Download Annual Contribution Certificate (PDF)"
-                        className="w-8 h-8 rounded-lg flex items-center justify-center text-emerald-700 hover:bg-emerald-50 border border-emerald-200/60 transition-colors cursor-pointer"
-                      >
-                        <FileCheck size={14} />
-                      </button>
-                      <button onClick={() => openEdit(m)} title="Edit Member" className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground transition-colors cursor-pointer">
-                        <Edit2 size={14} />
-                      </button>
-                      <button onClick={() => handleDelete(m.id)} title="Delete Member" className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:bg-red-50 hover:text-red-600 transition-colors cursor-pointer">
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
-                  </td>
+        {filtered.length === 0 ? (
+          <div className="py-14 px-4 text-center text-muted-foreground flex flex-col items-center justify-center gap-2">
+            <div className="w-12 h-12 rounded-2xl bg-muted/60 flex items-center justify-center text-muted-foreground mb-1">
+              <Users size={22} />
+            </div>
+            <p className="text-sm font-semibold text-foreground">No members registered yet</p>
+            <p className="text-xs text-muted-foreground max-w-sm">
+              Your organization roster is empty. Click "+ Add Member" to register members and track contributions, or "Add Admin" to invite co-administrators.
+            </p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-muted/50 border-b border-border">
+                  {["Member", "Contact", "Joined", "Contributions", "Outstanding", "Status", "Actions"].map(h => (
+                    <th key={h} className="text-left px-5 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wide whitespace-nowrap">{h}</th>
+                  ))}
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {filtered.map((m, i) => (
+                  <tr key={m.id} className={cn("border-t border-border/50 hover:bg-muted/20 transition-colors", i % 2 !== 0 && "bg-muted/10")}>
+                    <td className="px-5 py-3.5">
+                      <div className="flex items-center gap-3">
+                        <Avatar initials={m.initials} size="sm" color={m.status === "active" ? "#0B4832" : "#9CA3AF"} />
+                        <span className="font-medium text-foreground">{m.name}</span>
+                      </div>
+                    </td>
+                    <td className="px-5 py-3.5 text-muted-foreground text-xs">
+                      <div>{m.email}</div>
+                      <div>{m.phone}</div>
+                    </td>
+                    <td className="px-5 py-3.5 font-mono text-xs text-muted-foreground">{fmtDate(m.joined)}</td>
+                    <td className="px-5 py-3.5 font-mono font-semibold text-emerald-700">{fmt(m.contributions)}</td>
+                    <td className="px-5 py-3.5 font-mono font-semibold">
+                      <span className={m.outstanding > 0 ? "text-amber-700" : "text-muted-foreground"}>
+                        {m.outstanding > 0 ? fmt(m.outstanding) : "—"}
+                      </span>
+                    </td>
+                    <td className="px-5 py-3.5">
+                      <Badge label={m.status} variant={m.status === "active" ? "success" : "neutral"} />
+                    </td>
+                    <td className="px-5 py-3.5">
+                      <div className="flex items-center gap-1.5">
+                        {m.outstanding > 0 && (
+                          <button
+                            onClick={() => setPayingMember(m)}
+                            title="Collect / Pay Dues via QR"
+                            className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 text-xs font-semibold cursor-pointer"
+                          >
+                            <CreditCard size={12} />
+                            <span>Pay</span>
+                          </button>
+                        )}
+                        <button
+                          onClick={() =>
+                            exportContributionCertificatePDF({
+                              member: m,
+                              organizationName: profile?.organization || "FundFlow Community Trust",
+                            })
+                          }
+                          title="Download Annual Contribution Certificate (PDF)"
+                          className="w-8 h-8 rounded-lg flex items-center justify-center text-emerald-700 hover:bg-emerald-50 border border-emerald-200/60 transition-colors cursor-pointer"
+                        >
+                          <FileCheck size={14} />
+                        </button>
+                        <button onClick={() => openEdit(m)} title="Edit Member" className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground transition-colors cursor-pointer">
+                          <Edit2 size={14} />
+                        </button>
+                        <button onClick={() => handleDelete(m.id)} title="Delete Member" className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:bg-red-50 hover:text-red-600 transition-colors cursor-pointer">
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       <Modal open={modal !== null} onClose={() => setModal(null)} title={modal === "add" ? (form.role === "admin" ? "Add New Organization Admin" : "Add New Member") : "Edit Member"}>
@@ -2114,50 +2189,62 @@ function IncomeView({ token, profile }: { token: string; profile?: ProfileInfo }
             <Download size={13} /> Export PDF
           </button>
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-muted/50 border-b border-border">
-                {["Description", "Category", "Reference", "Date", "Amount", "Status", "Receipt"].map(h => (
-                  <th key={h} className="text-left px-5 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wide">{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {txs.map((tx, i) => (
-                <tr key={tx.id} className={cn("border-t border-border/50 hover:bg-muted/20 transition-colors", i % 2 !== 0 && "bg-muted/10")}>
-                  <td className="px-5 py-3.5 font-medium text-foreground">{tx.description}</td>
-                  <td className="px-5 py-3.5 text-muted-foreground">{tx.category}</td>
-                  <td className="px-5 py-3.5 font-mono text-xs text-muted-foreground">{tx.reference || "—"}</td>
-                  <td className="px-5 py-3.5 font-mono text-xs text-muted-foreground">{fmtDate(tx.date)}</td>
-                  <td className="px-5 py-3.5 font-mono font-semibold text-emerald-700">+{fmt(tx.amount)}</td>
-                  <td className="px-5 py-3.5"><Badge label={tx.status} variant={tx.status === "completed" ? "success" : "warning"} /></td>
-                  <td className="px-5 py-3.5">
-                    <button
-                      onClick={() =>
-                        exportPaymentReceiptPDF({
-                          transactionId: tx.reference || `TXN-${tx.id}`,
-                          payerName: "Organization Contributor",
-                          amount: tx.amount,
-                          category: tx.category,
-                          paymentMethod: "Electronic Transfer",
-                          paymentDate: tx.date,
-                          organizationName: profile?.organization || "FundFlow Community Trust",
-                          description: tx.description,
-                        })
-                      }
-                      title="Download Money Receipt (PDF)"
-                      className="flex items-center gap-1 text-xs text-emerald-700 bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1 rounded-lg border border-emerald-200 transition-colors cursor-pointer"
-                    >
-                      <Download size={12} />
-                      <span>Receipt</span>
-                    </button>
-                  </td>
+        {txs.length === 0 ? (
+          <div className="py-14 px-4 text-center text-muted-foreground flex flex-col items-center justify-center gap-2">
+            <div className="w-12 h-12 rounded-2xl bg-muted/60 flex items-center justify-center text-muted-foreground mb-1">
+              <ArrowUpRight size={22} className="text-emerald-600" />
+            </div>
+            <p className="text-sm font-semibold text-foreground">No income transactions recorded yet</p>
+            <p className="text-xs text-muted-foreground max-w-sm">
+              Click "Record Income" or "Receive Payment via QR" to register membership dues, donations, or sponsorships.
+            </p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-muted/50 border-b border-border">
+                  {["Description", "Category", "Reference", "Date", "Amount", "Status", "Receipt"].map(h => (
+                    <th key={h} className="text-left px-5 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wide">{h}</th>
+                  ))}
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {txs.map((tx, i) => (
+                  <tr key={tx.id} className={cn("border-t border-border/50 hover:bg-muted/20 transition-colors", i % 2 !== 0 && "bg-muted/10")}>
+                    <td className="px-5 py-3.5 font-medium text-foreground">{tx.description}</td>
+                    <td className="px-5 py-3.5 text-muted-foreground">{tx.category}</td>
+                    <td className="px-5 py-3.5 font-mono text-xs text-muted-foreground">{tx.reference || "—"}</td>
+                    <td className="px-5 py-3.5 font-mono text-xs text-muted-foreground">{fmtDate(tx.date)}</td>
+                    <td className="px-5 py-3.5 font-mono font-semibold text-emerald-700">+{fmt(tx.amount)}</td>
+                    <td className="px-5 py-3.5"><Badge label={tx.status} variant={tx.status === "completed" ? "success" : "warning"} /></td>
+                    <td className="px-5 py-3.5">
+                      <button
+                        onClick={() =>
+                          exportPaymentReceiptPDF({
+                            transactionId: tx.reference || `TXN-${tx.id}`,
+                            payerName: "Organization Contributor",
+                            amount: tx.amount,
+                            category: tx.category,
+                            paymentMethod: "Electronic Transfer",
+                            paymentDate: tx.date,
+                            organizationName: profile?.organization || "FundFlow Community Trust",
+                            description: tx.description,
+                          })
+                        }
+                        title="Download Money Receipt (PDF)"
+                        className="flex items-center gap-1 text-xs text-emerald-700 bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1 rounded-lg border border-emerald-200 transition-colors cursor-pointer"
+                      >
+                        <Download size={12} />
+                        <span>Receipt</span>
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       <Modal open={modal} onClose={() => setModal(false)} title="Record Income">
@@ -2255,34 +2342,46 @@ function ExpensesView({ token, profile }: { token: string; profile?: ProfileInfo
             <Download size={13} /> Export PDF
           </button>
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-muted/50 border-b border-border">
-                {["Description", "Category", "Reference", "Date", "Amount", "Status", ""].map(h => (
-                  <th key={h} className="text-left px-5 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wide">{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {txs.map((tx, i) => (
-                <tr key={tx.id} className={cn("border-t border-border/50 hover:bg-muted/20 transition-colors", i % 2 !== 0 && "bg-muted/10")}>
-                  <td className="px-5 py-3.5 font-medium text-foreground">{tx.description}</td>
-                  <td className="px-5 py-3.5 text-muted-foreground">{tx.category}</td>
-                  <td className="px-5 py-3.5 font-mono text-xs text-muted-foreground">{tx.reference || "—"}</td>
-                  <td className="px-5 py-3.5 font-mono text-xs text-muted-foreground">{fmtDate(tx.date)}</td>
-                  <td className="px-5 py-3.5 font-mono font-semibold text-red-600">-{fmt(tx.amount)}</td>
-                  <td className="px-5 py-3.5"><Badge label={tx.status} variant={tx.status === "completed" ? "success" : "warning"} /></td>
-                  <td className="px-5 py-3.5">
-                    <button onClick={() => handleDelete(tx.id)} className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:bg-red-50 hover:text-red-600 transition-colors cursor-pointer">
-                      <Trash2 size={14} />
-                    </button>
-                  </td>
+        {txs.length === 0 ? (
+          <div className="py-14 px-4 text-center text-muted-foreground flex flex-col items-center justify-center gap-2">
+            <div className="w-12 h-12 rounded-2xl bg-muted/60 flex items-center justify-center text-muted-foreground mb-1">
+              <TrendingDown size={22} className="text-red-500" />
+            </div>
+            <p className="text-sm font-semibold text-foreground">No expenses recorded yet</p>
+            <p className="text-xs text-muted-foreground max-w-sm">
+              Click "Record Expense" above to log official fund disbursements, operational costs, or event budgets.
+            </p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-muted/50 border-b border-border">
+                  {["Description", "Category", "Reference", "Date", "Amount", "Status", ""].map(h => (
+                    <th key={h} className="text-left px-5 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wide">{h}</th>
+                  ))}
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {txs.map((tx, i) => (
+                  <tr key={tx.id} className={cn("border-t border-border/50 hover:bg-muted/20 transition-colors", i % 2 !== 0 && "bg-muted/10")}>
+                    <td className="px-5 py-3.5 font-medium text-foreground">{tx.description}</td>
+                    <td className="px-5 py-3.5 text-muted-foreground">{tx.category}</td>
+                    <td className="px-5 py-3.5 font-mono text-xs text-muted-foreground">{tx.reference || "—"}</td>
+                    <td className="px-5 py-3.5 font-mono text-xs text-muted-foreground">{fmtDate(tx.date)}</td>
+                    <td className="px-5 py-3.5 font-mono font-semibold text-red-600">-{fmt(tx.amount)}</td>
+                    <td className="px-5 py-3.5"><Badge label={tx.status} variant={tx.status === "completed" ? "success" : "warning"} /></td>
+                    <td className="px-5 py-3.5">
+                      <button onClick={() => handleDelete(tx.id)} className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:bg-red-50 hover:text-red-600 transition-colors cursor-pointer">
+                        <Trash2 size={14} />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       <Modal open={modal} onClose={() => setModal(false)} title="Record Expense">
@@ -2492,21 +2591,33 @@ function AnnouncementsView({ role, token }: { role: Role; token: string }) {
           <Btn onClick={() => { setFieldErrors({}); setModal(true); }}><Plus size={15} /> Post Announcement</Btn>
         </div>
       )}
-      <div className="flex flex-col gap-4">
-        {announcements.map(a => (
-          <div key={a.id} className="bg-card rounded-2xl p-5 border border-border hover:shadow-sm transition-shadow">
-            <div className="flex items-start justify-between gap-3 mb-3">
-              <h3 className="font-semibold text-foreground" style={{ fontFamily: "Fraunces, serif" }}>{a.title}</h3>
-              <Badge label={a.priority} variant={priorityVariant[a.priority]} />
-            </div>
-            <p className="text-sm text-muted-foreground leading-relaxed mb-4">{a.body}</p>
-            <div className="flex items-center justify-between text-xs text-muted-foreground border-t border-border pt-3">
-              <span className="flex items-center gap-1.5"><User size={12} /> {a.author}</span>
-              <span className="font-mono">{fmtDate(a.date)}</span>
-            </div>
+      {announcements.length === 0 ? (
+        <div className="bg-card rounded-2xl border border-border py-14 px-4 text-center text-muted-foreground flex flex-col items-center justify-center gap-2">
+          <div className="w-12 h-12 rounded-2xl bg-muted/60 flex items-center justify-center text-muted-foreground mb-1">
+            <Bell size={22} />
           </div>
-        ))}
-      </div>
+          <p className="text-sm font-semibold text-foreground">No announcements posted yet</p>
+          <p className="text-xs text-muted-foreground max-w-sm">
+            Keep your members updated with organizational notices, meeting schedules, and policy updates.
+          </p>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-4">
+          {announcements.map(a => (
+            <div key={a.id} className="bg-card rounded-2xl p-5 border border-border hover:shadow-sm transition-shadow">
+              <div className="flex items-start justify-between gap-3 mb-3">
+                <h3 className="font-semibold text-foreground" style={{ fontFamily: "Fraunces, serif" }}>{a.title}</h3>
+                <Badge label={a.priority} variant={priorityVariant[a.priority]} />
+              </div>
+              <p className="text-sm text-muted-foreground leading-relaxed mb-4">{a.body}</p>
+              <div className="flex items-center justify-between text-xs text-muted-foreground border-t border-border pt-3">
+                <span className="flex items-center gap-1.5"><User size={12} /> {a.author}</span>
+                <span className="font-mono">{fmtDate(a.date)}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       <Modal open={modal} onClose={() => setModal(false)} title="Post Announcement">
         <div className="flex flex-col gap-4">

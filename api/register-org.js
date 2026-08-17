@@ -62,33 +62,7 @@ export default async function handler(req, res) {
     };
     await usersCol.insertOne(newUser);
 
-    // 4. Initialize starter seed balance & announcements for this new organization
-    const transactionsCol = db.collection("transactions");
-    const announcementsCol = db.collection("announcements");
-
-    await transactionsCol.insertOne({
-      id: String(Date.now()),
-      orgId,
-      type: "income",
-      category: "Monthly Contribution",
-      amount: 10000,
-      description: "Initial treasury setup grant for " + cleanOrgName,
-      date: new Date().toISOString().slice(0, 10),
-      reference: `ORG-INIT-${Date.now().toString().slice(-6)}`,
-      status: "completed",
-    });
-
-    await announcementsCol.insertOne({
-      id: String(Date.now()),
-      orgId,
-      title: `Welcome to ${cleanOrgName} Fund Portal`,
-      body: `Welcome to the official digital fund management system for ${cleanOrgName}. You can now manage members, record collections, disburse expenses, and track financial transparency.`,
-      date: new Date().toISOString().slice(0, 10),
-      priority: "high",
-      author: cleanAdminName + " (Admin)",
-    });
-
-    // 5. Sign JWT token
+    // 4. Sign JWT token
     const token = signJwt({
       email: newUser.email,
       role: newUser.role,
