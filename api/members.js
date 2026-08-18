@@ -38,18 +38,43 @@ export default async function handler(req, res) {
 
     try {
       const { id, name, email, role, initials, joined, status, contributions, outstanding, phone } = req.body || {};
+      const orgId = user.orgId || "org_default";
+
+      // Prevent duplicate members with the same email in the same organization
+      const existing = await collection.findOne({
+        $or: [
+          ...(id ? [{ id }] : []),
+          ...(email ? [{ email, ...(orgId !== "org_default" ? { orgId } : {}) }] : []),
+        ],
+      });
+
+      if (existing) {
+        const update = {};
+        if (name !== undefined) update.name = name;
+        if (phone !== undefined) update.phone = phone;
+        if (status !== undefined) update.status = status;
+        if (contributions !== undefined) update.contributions = Number(contributions);
+        if (outstanding !== undefined) update.outstanding = Number(outstanding);
+        if (name) {
+          update.initials = name.split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase();
+        }
+
+        await collection.updateOne({ _id: existing._id }, { $set: update });
+        return res.json({ ...existing, ...update });
+      }
+
       const doc = {
-        id,
-        orgId: user.orgId || "org_default",
+        id: id || String(Date.now()),
+        orgId,
         name,
         email,
-        role,
-        initials,
-        joined,
-        status,
-        contributions,
-        outstanding,
-        phone,
+        role: role || "member",
+        initials: initials || (name ? name.split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase() : "M"),
+        joined: joined || new Date().toISOString().slice(0, 10),
+        status: status || "active",
+        contributions: Number(contributions) || 0,
+        outstanding: Number(outstanding) || 0,
+        phone: phone || "",
       };
       await collection.insertOne(doc);
       return res.status(201).json(doc);
@@ -70,22 +95,31 @@ export default async function handler(req, res) {
 
     try {
       const { id, name, email, phone, status, contributions, outstanding } = req.body || {};
-      if (!id) return res.status(400).json({ error: "id is required." });
+      if (!id && !email) return res.status(400).json({ error: "id or email is required." });
 
       const update = {};
       if (name !== undefined) update.name = name;
       if (email !== undefined) update.email = email;
       if (phone !== undefined) update.phone = phone;
       if (status !== undefined) update.status = status;
-      if (contributions !== undefined) update.contributions = contributions;
-      if (outstanding !== undefined) update.outstanding = outstanding;
+      if (contributions !== undefined) update.contributions = Number(contributions);
+      if (outstanding !== undefined) update.outstanding = Number(outstanding);
       if (name) {
         update.initials = name.split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase();
       }
 
-      const result = await collection.updateOne({ id }, { $set: update });
+      const filter = id ? { id } : { email };
+      const result = await collection.updateOne(filter, { $set: update });
       if (result.matchedCount === 0) {
-        return res.status(404).json({ error: "Member not found." });
+        // If not matched by id, try matching by email
+        if (id && email) {
+          const fallbackResult = await collection.updateOne({ email }, { $set: update });
+          if (fallbackResult.matchedCount === 0) {
+            return res.status(404).json({ error: "Member not found." });
+          }
+        } else {
+          return res.status(404).json({ error: "Member not found." });
+        }
       }
       return res.json({ success: true, updated: update });
     } catch (error) {
@@ -96,10 +130,11 @@ export default async function handler(req, res) {
 
   if (req.method === "DELETE") {
     try {
-      const { id } = req.body || {};
-      if (!id) return res.status(400).json({ error: "id is required." });
+      const { id, email } = req.body || {};
+      if (!id && !email) return res.status(400).json({ error: "id or email is required." });
 
-      const result = await collection.deleteOne({ id });
+      const filter = id ? { id } : { email };
+      const result = await collection.deleteOne(filter);
       if (result.deletedCount === 0) {
         return res.status(404).json({ error: "Member not found." });
       }

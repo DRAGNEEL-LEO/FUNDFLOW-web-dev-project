@@ -1,6 +1,7 @@
 // API helper for making authenticated requests
 
 const API_AUTH_KEY = "fundflow_auth";
+const SESSION_AUTH_KEY = "fundflow_auth_session";
 
 export interface AuthData {
   token: string;
@@ -13,20 +14,44 @@ export interface AuthData {
 
 export function getStoredAuth(): AuthData | null {
   try {
-    const raw = localStorage.getItem(API_AUTH_KEY);
-    if (!raw) return null;
-    return JSON.parse(raw);
+    // 1. Check tab-isolated sessionStorage first
+    const sessionRaw = sessionStorage.getItem(SESSION_AUTH_KEY);
+    if (sessionRaw) {
+      return JSON.parse(sessionRaw);
+    }
+
+    // 2. Fallback to localStorage (e.g. newly opened tab)
+    const localRaw = localStorage.getItem(API_AUTH_KEY);
+    if (!localRaw) return null;
+    const data = JSON.parse(localRaw);
+    // Initialize current tab's sessionStorage with the stored login
+    try {
+      sessionStorage.setItem(SESSION_AUTH_KEY, JSON.stringify(data));
+    } catch {
+      // Ignore if sessionStorage quota error
+    }
+    return data;
   } catch {
     return null;
   }
 }
 
 export function storeAuth(auth: AuthData): void {
-  localStorage.setItem(API_AUTH_KEY, JSON.stringify(auth));
+  try {
+    sessionStorage.setItem(SESSION_AUTH_KEY, JSON.stringify(auth));
+    localStorage.setItem(API_AUTH_KEY, JSON.stringify(auth));
+  } catch (e) {
+    console.error("Failed to store auth:", e);
+  }
 }
 
 export function clearAuth(): void {
-  localStorage.removeItem(API_AUTH_KEY);
+  try {
+    sessionStorage.removeItem(SESSION_AUTH_KEY);
+    localStorage.removeItem(API_AUTH_KEY);
+  } catch (e) {
+    console.error("Failed to clear auth:", e);
+  }
 }
 
 export async function apiFetch<T = unknown>(

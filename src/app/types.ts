@@ -42,6 +42,9 @@ export interface Transaction {
   date: string;
   reference?: string;
   status: "completed" | "pending";
+  memberId?: string;
+  memberEmail?: string;
+  memberName?: string;
 }
 
 export interface Announcement {

@@ -37,10 +37,8 @@ export default async function handler(req, res) {
     }
 
     try {
-      const { id, type, category, amount, description, date, reference, status } = req.body || {};
-      const doc = {
+      const {
         id,
-        orgId: user.orgId || "org_default",
         type,
         category,
         amount,
@@ -48,8 +46,68 @@ export default async function handler(req, res) {
         date,
         reference,
         status,
+        memberId,
+        memberEmail,
+        memberName,
+      } = req.body || {};
+
+      const numAmount = Number(amount);
+      const orgId = user.orgId || "org_default";
+      const finalMemberEmail = memberEmail || (user.role === "member" ? user.email : undefined);
+      const finalMemberName = memberName || (user.role === "member" ? user.name : undefined);
+
+      const doc = {
+        id: id || String(Date.now()),
+        orgId,
+        type,
+        category,
+        amount: numAmount,
+        description,
+        date: date || new Date().toISOString().slice(0, 10),
+        reference: reference || `TRX-${Date.now()}`,
+        status: status || "completed",
+        memberId: memberId || undefined,
+        memberEmail: finalMemberEmail,
+        memberName: finalMemberName,
       };
+
       await collection.insertOne(doc);
+
+      // If this is an income transaction associated with a member, reconcile member contributions & dues
+      if (type === "income") {
+        const membersCol = db.collection("members");
+        let memberQuery = null;
+
+        if (memberId) {
+          memberQuery = { id: memberId };
+        } else if (finalMemberEmail) {
+          memberQuery = {
+            email: finalMemberEmail,
+            ...(orgId !== "org_default" ? { orgId } : {}),
+          };
+        }
+
+        if (memberQuery) {
+          const existingMember = await membersCol.findOne(memberQuery);
+          if (existingMember) {
+            const currentContributions = Number(existingMember.contributions) || 0;
+            const currentOutstanding = Number(existingMember.outstanding) || 0;
+            const newContributions = currentContributions + numAmount;
+            const newOutstanding = Math.max(0, currentOutstanding - numAmount);
+
+            await membersCol.updateOne(
+              { _id: existingMember._id },
+              {
+                $set: {
+                  contributions: newContributions,
+                  outstanding: newOutstanding,
+                },
+              }
+            );
+          }
+        }
+      }
+
       return res.status(201).json(doc);
     } catch (error) {
       console.error(error);

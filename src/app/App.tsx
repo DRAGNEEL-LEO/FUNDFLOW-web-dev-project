@@ -76,6 +76,9 @@ interface Transaction {
   date: string;
   reference?: string;
   status: "completed" | "pending";
+  memberId?: string;
+  memberEmail?: string;
+  memberName?: string;
 }
 
 interface Announcement {
@@ -1862,10 +1865,7 @@ function MembersView({ token, profile }: { token: string; profile?: ProfileInfo 
     setSaving(true);
     try {
       if (modal === "add") {
-        const id = String(Date.now());
-        const initials = form.name.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase();
-
-        // 1. Create User account (Admin or Member) via /api/register
+        // Create User account & member profile via /api/register
         await apiFetch("/api/register", {
           method: "POST", token,
           body: {
@@ -1876,18 +1876,6 @@ function MembersView({ token, profile }: { token: string; profile?: ProfileInfo 
             phone: form.phone,
           },
         });
-
-        // 2. If member profile is also needed, add to members collection
-        if (form.role === "member") {
-          const doc = {
-            id, name: form.name, email: form.email, phone: form.phone,
-            role: "member" as const, initials,
-            joined: new Date().toISOString().slice(0, 10),
-            status: form.status as "active" | "inactive",
-            contributions: 0, outstanding: 0,
-          };
-          await apiFetch("/api/members", { method: "POST", token, body: doc }).catch(() => {});
-        }
       } else if (modal === "edit" && editTarget) {
         await apiFetch("/api/members", {
           method: "PUT", token,
@@ -1911,10 +1899,16 @@ function MembersView({ token, profile }: { token: string; profile?: ProfileInfo 
     } catch (err) { console.error("Delete failed:", err); }
   };
 
-  const handleMemberPaymentSuccess = async (payment: { amount: number; category: string; reference: string; description: string }) => {
+  const handleMemberPaymentSuccess = async (payment: {
+    amount: number;
+    category: string;
+    reference: string;
+    description: string;
+    memberId?: string;
+  }) => {
     if (!payingMember) return;
     try {
-      // Record transaction
+      // 1. Record transaction in ledger
       await apiFetch("/api/transactions", {
         method: "POST",
         token,
@@ -1925,15 +1919,24 @@ function MembersView({ token, profile }: { token: string; profile?: ProfileInfo 
           description: payment.description,
           date: new Date().toISOString().slice(0, 10),
           reference: payment.reference,
+          memberId: payingMember.id,
+          memberEmail: payingMember.email,
+          memberName: payingMember.name,
         },
       });
 
-      // Update member balance locally & reload
-      setMembers(prev => prev.map(m => m.id === payingMember.id ? {
-        ...m,
-        contributions: m.contributions + payment.amount,
-        outstanding: Math.max(0, m.outstanding - payment.amount),
-      } : m));
+      // 2. Persist updated member contributions and outstanding dues in database
+      await apiFetch("/api/members", {
+        method: "PUT",
+        token,
+        body: {
+          id: payingMember.id,
+          contributions: (payingMember.contributions || 0) + payment.amount,
+          outstanding: Math.max(0, (payingMember.outstanding || 0) - payment.amount),
+        },
+      });
+
+      // 3. Reload latest members
       loadMembers();
     } catch (e) {
       console.error("Member payment update failed:", e);
@@ -2152,6 +2155,7 @@ function IncomeView({ token, profile }: { token: string; profile?: ProfileInfo }
     category: string;
     reference: string;
     description: string;
+    memberId?: string;
   }) => {
     try {
       await apiFetch("/api/transactions", {
@@ -2164,6 +2168,7 @@ function IncomeView({ token, profile }: { token: string; profile?: ProfileInfo }
           description: payment.description,
           date: new Date().toISOString().slice(0, 10),
           reference: payment.reference,
+          memberId: payment.memberId,
         },
       });
       loadTxs();
@@ -3695,18 +3700,29 @@ function MemberHomeView({ token, userEmail }: { token: string; userEmail: string
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [payModalOpen, setPayModalOpen] = useState(false);
 
-  useEffect(() => {
+  const loadData = useCallback(() => {
     apiFetch<Member[]>("/api/members", { token }).then(data => {
       setMembers(data);
-      const found = data.find(m => m.email === userEmail);
+      const found = data.find(m => m.email?.toLowerCase() === userEmail?.toLowerCase());
       setMe(found || data[0] || null);
     }).catch(() => {});
     apiFetch<Transaction[]>("/api/transactions", { token }).then(data => {
       setTransactions(data);
-      setMyTxs(data.filter(t => t.type === "income" && t.category === "Monthly Contribution").slice(0, 4));
+      const incomeTxs = data.filter(t => t.type === "income");
+      const userTxs = incomeTxs.filter(t =>
+        (t.memberEmail && t.memberEmail.toLowerCase() === userEmail.toLowerCase()) ||
+        t.category === "Monthly Contribution" ||
+        t.category === "Donation" ||
+        t.category === "Membership Fee"
+      );
+      setMyTxs(userTxs.slice(0, 10));
     }).catch(() => {});
     apiFetch<Announcement[]>("/api/announcements", { token }).then(setAnn).catch(() => {});
   }, [token, userEmail]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
 
   if (!me) return <div className="p-6 text-center text-muted-foreground">Loading...</div>;
 
@@ -3714,11 +3730,12 @@ function MemberHomeView({ token, userEmail }: { token: string; userEmail: string
   const totalExpenses = transactions.filter(t => t.type === "expense").reduce((s, t) => s + t.amount, 0);
   const activeMembers = members.filter(m => m.status === "active").length;
 
-  const handlePaymentSuccess = (payment: {
+  const handlePaymentSuccess = async (payment: {
     amount: number;
     category: string;
     reference: string;
     method: string;
+    memberId?: string;
     description: string;
   }) => {
     const newTx: Transaction = {
@@ -3730,30 +3747,58 @@ function MemberHomeView({ token, userEmail }: { token: string; userEmail: string
       date: new Date().toISOString().slice(0, 10),
       reference: payment.reference,
       status: "completed",
+      memberId: me.id,
+      memberEmail: me.email,
+      memberName: me.name,
     };
 
+    // Optimistic UI updates
     setMe(prev => prev ? ({
       ...prev,
-      contributions: prev.contributions + payment.amount,
-      outstanding: Math.max(0, prev.outstanding - payment.amount),
+      contributions: (prev.contributions || 0) + payment.amount,
+      outstanding: Math.max(0, (prev.outstanding || 0) - payment.amount),
     }) : null);
 
     setMyTxs(prev => [newTx, ...prev]);
     setTransactions(prev => [newTx, ...prev]);
 
-    // Persist to backend
-    apiFetch("/api/transactions", {
-      method: "POST",
-      token,
-      body: {
-        type: "income",
-        category: payment.category,
-        amount: payment.amount,
-        description: payment.description,
-        date: new Date().toISOString().slice(0, 10),
-        reference: payment.reference,
-      },
-    }).catch(() => {});
+    try {
+      // 1. Record transaction in ledger
+      await apiFetch("/api/transactions", {
+        method: "POST",
+        token,
+        body: {
+          type: "income",
+          category: payment.category,
+          amount: payment.amount,
+          description: payment.description,
+          date: new Date().toISOString().slice(0, 10),
+          reference: payment.reference,
+          memberId: me.id,
+          memberEmail: me.email,
+          memberName: me.name,
+        },
+      });
+
+      // 2. Persist updated member contributions & outstanding dues to database
+      if (me.id) {
+        await apiFetch("/api/members", {
+          method: "PUT",
+          token,
+          body: {
+            id: me.id,
+            email: me.email,
+            contributions: (me.contributions || 0) + payment.amount,
+            outstanding: Math.max(0, (me.outstanding || 0) - payment.amount),
+          },
+        });
+      }
+
+      // 3. Refresh data from database
+      loadData();
+    } catch (e) {
+      console.error("Payment persistence failed:", e);
+    }
   };
 
   const handleDownloadCertificate = () => {
@@ -3970,11 +4015,59 @@ function AppShell({
   orgName?: string;
   onLogout: () => void;
 }) {
-  const defaultView: View = role === "admin" ? "dashboard" : "member-home";
-  const [view, setView] = useState<View>(defaultView);
+  const getInitialView = (): View => {
+    const adminViews: View[] = ["dashboard", "members", "income", "expenses", "reports", "announcements", "ai"];
+    const memberViews: View[] = ["member-home", "announcements", "ai"];
+    const allowed = role === "admin" ? adminViews : memberViews;
+
+    // 1. Check URL hash (e.g. #members or #income)
+    const hash = window.location.hash.replace("#", "") as View;
+    if (hash && allowed.includes(hash)) {
+      return hash;
+    }
+
+    // 2. Check tab-isolated sessionStorage
+    const saved = sessionStorage.getItem(`fundflow_view_${role}`) as View;
+    if (saved && allowed.includes(saved)) {
+      return saved;
+    }
+
+    return role === "admin" ? "dashboard" : "member-home";
+  };
+
+  const [view, setViewState] = useState<View>(getInitialView);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [editProfileOpen, setEditProfileOpen] = useState(false);
   const meta = VIEW_TITLES[view] || { title: "FundFlow", subtitle: "" };
+
+  const setView = (newView: View) => {
+    setViewState(newView);
+    try {
+      sessionStorage.setItem(`fundflow_view_${role}`, newView);
+    } catch {}
+    window.location.hash = newView;
+  };
+
+  // Synchronize hash & sessionStorage on view changes and hash events
+  useEffect(() => {
+    window.location.hash = view;
+    try {
+      sessionStorage.setItem(`fundflow_view_${role}`, view);
+    } catch {}
+
+    const onHashChange = () => {
+      const hash = window.location.hash.replace("#", "") as View;
+      const adminViews: View[] = ["dashboard", "members", "income", "expenses", "reports", "announcements", "ai"];
+      const memberViews: View[] = ["member-home", "announcements", "ai"];
+      const allowed = role === "admin" ? adminViews : memberViews;
+      if (hash && allowed.includes(hash)) {
+        setViewState(hash);
+      }
+    };
+
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
+  }, [role, view]);
 
   const [profile, setProfile] = useState<ProfileInfo>({
     name: userName,
@@ -4051,7 +4144,17 @@ function AppShell({
 
 /* ─────────────────────────── ROOT ─────────────────────────── */
 export default function App() {
-  const [page, setPage] = useState<AppPage>("landing");
+  const getInitialPage = (): AppPage => {
+    const stored = getStoredAuth();
+    if (stored) return "app";
+    const savedPage = sessionStorage.getItem("fundflow_current_page") as AppPage;
+    if (savedPage && ["landing", "login"].includes(savedPage)) {
+      return savedPage;
+    }
+    return "landing";
+  };
+
+  const [page, setPageState] = useState<AppPage>(getInitialPage);
   const [auth, setAuth] = useState<{
     role: Role;
     token: string;
@@ -4059,9 +4162,16 @@ export default function App() {
     email: string;
     orgName?: string;
     orgId?: string;
-  } | null>(null);
+  } | null>(() => getStoredAuth());
 
-  // Restore auth from localStorage on mount
+  const setPage = (newPage: AppPage) => {
+    setPageState(newPage);
+    try {
+      sessionStorage.setItem("fundflow_current_page", newPage);
+    } catch {}
+  };
+
+  // Restore auth from storage on mount
   useEffect(() => {
     const stored = getStoredAuth();
     if (stored) {
@@ -4074,6 +4184,7 @@ export default function App() {
     clearAuth();
     setAuth(null);
     setPage("landing");
+    window.location.hash = "";
   };
 
   if (page === "landing") return <LandingPage onGetStarted={() => setPage("login")} />;
@@ -4081,7 +4192,7 @@ export default function App() {
     return (
       <LoginView
         onLogin={(role, token, name, email, orgName, orgId) => {
-          setAuth({ role, token, name, email, orgName, orgId });
+          setAuth({ role, token: token || "", name: name || "", email: email || "", orgName, orgId });
           setPage("app");
         }}
         onBack={() => setPage("landing")}
