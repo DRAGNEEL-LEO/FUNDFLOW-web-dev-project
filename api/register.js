@@ -51,29 +51,29 @@ export default async function handler(req, res) {
 
     await usersCol.insertOne(newUser);
 
-    if (role === "member") {
-      const membersCol = db.collection("members");
-      const initials = name
-        .split(" ")
-        .map((w) => w[0])
-        .join("")
-        .slice(0, 2)
-        .toUpperCase();
+    const membersCol = db.collection("members");
+    const initials = name
+      .split(" ")
+      .map((w) => w[0])
+      .join("")
+      .slice(0, 2)
+      .toUpperCase();
 
-      await membersCol.insertOne({
-        id: String(Date.now()),
-        orgId,
-        name,
-        email,
-        role: "member",
-        initials,
-        joined: new Date().toISOString().slice(0, 10),
-        status: "active",
-        contributions: 0,
-        outstanding: 0,
-        phone: phone || "",
-      });
-    }
+    await membersCol.insertOne({
+      id: String(Date.now()),
+      orgId,
+      name,
+      email,
+      role: role || "member",
+      isMainAdmin: false,
+      adminType: role === "admin" ? "admin" : undefined,
+      initials,
+      joined: new Date().toISOString().slice(0, 10),
+      status: "active",
+      contributions: 0,
+      outstanding: 0,
+      phone: phone || "",
+    });
 
     return res.status(201).json({
       success: true,

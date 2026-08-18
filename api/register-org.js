@@ -62,6 +62,31 @@ export default async function handler(req, res) {
     };
     await usersCol.insertOne(newUser);
 
+    // Also register in members collection as Main Admin
+    const membersCol = db.collection("members");
+    const initials = cleanAdminName
+      .split(" ")
+      .map((w) => w[0])
+      .join("")
+      .slice(0, 2)
+      .toUpperCase();
+
+    await membersCol.insertOne({
+      id: "mem_" + Date.now(),
+      orgId,
+      name: cleanAdminName,
+      email: cleanEmail,
+      role: "admin",
+      isMainAdmin: true,
+      adminType: "main_admin",
+      initials,
+      joined: new Date().toISOString().slice(0, 10),
+      status: "active",
+      contributions: 0,
+      outstanding: 0,
+      phone: phone ? phone.trim() : "",
+    });
+
     // 4. Sign JWT token
     const token = signJwt({
       email: newUser.email,

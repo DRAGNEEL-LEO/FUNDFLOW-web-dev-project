@@ -2,11 +2,12 @@ import { connectToDatabase } from "../lib/db.js";
 import bcrypt from "bcryptjs";
 
 const members = [
+  { id: "adm_1", name: "Admin Adeyemi", email: "admin@fundflow.org", role: "admin", isMainAdmin: true, adminType: "main_admin", initials: "AA", joined: "2023-01-01", status: "active", contributions: 0, outstanding: 0, phone: "+880 1700 000000" },
+  { id: "adm_2", name: "Ngozi Adeyemi", email: "ngozi@fundflow.org", role: "admin", isMainAdmin: false, adminType: "admin", initials: "NA", joined: "2023-01-05", status: "active", contributions: 110000, outstanding: 5000, phone: "+880 1511 789012" },
   { id: "1", name: "Amara Nwosu", email: "member@fundflow.org", role: "member", initials: "AN", joined: "2023-01-15", status: "active", contributions: 124000, outstanding: 0, phone: "+880 1712 345678" },
   { id: "2", name: "James Okonkwo", email: "james@fundflow.org", role: "member", initials: "JO", joined: "2023-02-10", status: "active", contributions: 98000, outstanding: 12000, phone: "+880 1811 456789" },
   { id: "3", name: "Fatima Al-Hassan", email: "fatima@fundflow.org", role: "member", initials: "FA", joined: "2022-11-05", status: "active", contributions: 156000, outstanding: 0, phone: "+880 1911 567890" },
   { id: "4", name: "David Chen", email: "david@fundflow.org", role: "member", initials: "DC", joined: "2023-03-20", status: "inactive", contributions: 32000, outstanding: 24000, phone: "+880 1611 678901" },
-  { id: "5", name: "Ngozi Adeyemi", email: "ngozi@fundflow.org", role: "member", initials: "NA", joined: "2023-01-01", status: "active", contributions: 110000, outstanding: 5000, phone: "+880 1511 789012" },
   { id: "6", name: "Kwame Asante", email: "kwame@fundflow.org", role: "member", initials: "KA", joined: "2022-09-14", status: "active", contributions: 182000, outstanding: 0, phone: "+880 1411 890123" },
   { id: "7", name: "Priya Sharma", email: "priya@fundflow.org", role: "member", initials: "PS", joined: "2023-04-08", status: "active", contributions: 74000, outstanding: 8000, phone: "+880 1311 901234" },
   { id: "8", name: "Emmanuel Diallo", email: "emmanuel@fundflow.org", role: "member", initials: "ED", joined: "2023-05-22", status: "inactive", contributions: 18000, outstanding: 36000, phone: "+880 1211 012345" },

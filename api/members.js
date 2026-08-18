@@ -14,13 +14,74 @@ export default async function handler(req, res) {
   if (req.method === "GET") {
     try {
       let filter = {};
-      if (user.orgId && user.orgId !== "org_default") {
-        filter = { orgId: user.orgId };
-      } else if (user.orgId === "org_default") {
-        filter = { $or: [{ orgId: "org_default" }, { orgId: { $exists: false } }] };
+      const orgId = user.orgId || "org_default";
+
+      if (orgId !== "org_default") {
+        filter.orgId = orgId;
+      } else {
+        filter.$or = [{ orgId: "org_default" }, { orgId: { $exists: false } }];
       }
+
+      // 1. Fetch organization to identify owner / main admin
+      const org = await db.collection("organizations").findOne(
+        orgId !== "org_default" ? { id: orgId } : { $or: [{ id: "org_default" }, { id: { $exists: false } }] }
+      );
+      const ownerEmail = org?.ownerEmail?.toLowerCase() || "admin@fundflow.org";
+
+      // 2. Fetch all registered users in this org
+      const userFilter = orgId !== "org_default" ? { orgId } : { $or: [{ orgId: "org_default" }, { orgId: { $exists: false } }] };
+      const orgUsers = await db.collection("users").find(userFilter).toArray();
+
+      // 3. Fetch members from members collection
       const members = await collection.find(filter).sort({ joined: -1 }).toArray();
-      return res.json(members);
+
+      // 4. Ensure all users from users collection exist in members roster
+      const memberEmails = new Set(members.map((m) => m.email?.toLowerCase()));
+
+      for (const u of orgUsers) {
+        const uEmail = u.email?.toLowerCase();
+        if (uEmail && !memberEmails.has(uEmail)) {
+          const initials = (u.name || "Admin")
+            .split(" ")
+            .map((w) => w[0])
+            .join("")
+            .slice(0, 2)
+            .toUpperCase();
+          const isMain = uEmail === ownerEmail || (!u.createdBy && u.role === "admin");
+          members.unshift({
+            id: u.id || `usr_${u._id}`,
+            orgId: u.orgId || orgId,
+            name: u.name || "Administrator",
+            email: u.email,
+            role: u.role || "admin",
+            isMainAdmin: isMain,
+            adminType: isMain ? "main_admin" : (u.role === "admin" ? "admin" : undefined),
+            initials,
+            joined: u.createdAt || "2023-01-01",
+            status: "active",
+            contributions: 0,
+            outstanding: 0,
+            phone: u.phone || "",
+          });
+          memberEmails.add(uEmail);
+        }
+      }
+
+      // 5. Annotate all members with isMainAdmin & adminType
+      const enrichedMembers = members.map((m) => {
+        const mEmail = m.email?.toLowerCase();
+        const matchedUser = orgUsers.find((u) => u.email?.toLowerCase() === mEmail);
+        const isMain = mEmail === ownerEmail || (matchedUser && !matchedUser.createdBy && matchedUser.role === "admin") || mEmail === "admin@fundflow.org";
+        const role = m.role || matchedUser?.role || (isMain ? "admin" : "member");
+        return {
+          ...m,
+          role,
+          isMainAdmin: isMain || m.isMainAdmin || false,
+          adminType: isMain ? "main_admin" : (role === "admin" ? "admin" : undefined),
+        };
+      });
+
+      return res.json(enrichedMembers);
     } catch (error) {
       console.error(error);
       return res.status(500).json({ error: "Unable to fetch members." });

@@ -26,6 +26,8 @@ export interface Member {
   name: string;
   email: string;
   role: Role;
+  isMainAdmin?: boolean;
+  adminType?: "main_admin" | "admin";
   initials: string;
   joined: string;
   status: "active" | "inactive";

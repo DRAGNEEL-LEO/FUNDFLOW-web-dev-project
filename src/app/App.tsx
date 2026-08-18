@@ -18,7 +18,7 @@ import {
   ArrowRight, Star, Lock, Shield, Settings,
   FileText, SlidersHorizontal, FileCheck, QrCode, Building2,
   HeartHandshake, Clock, CheckCircle2, XCircle, Send,
-  FilePlus, ShieldAlert,
+  FilePlus, ShieldAlert, Crown, Mail, Phone,
 } from "lucide-react";
 import {
   AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
@@ -63,6 +63,8 @@ interface Member {
   name: string;
   email: string;
   role: Role;
+  isMainAdmin?: boolean;
+  adminType?: "main_admin" | "admin";
   initials: string;
   joined: string;
   status: "active" | "inactive";
@@ -1846,6 +1848,7 @@ function DashboardView({ token, profile }: { token: string; profile?: ProfileInf
 function MembersView({ token, profile }: { token: string; profile?: ProfileInfo }) {
   const [members, setMembers] = useState<Member[]>([]);
   const [search, setSearch] = useState("");
+  const [roleFilter, setRoleFilter] = useState<"all" | "admin" | "member">("all");
   const [modal, setModal] = useState<"add" | "edit" | null>(null);
   const [editTarget, setEditTarget] = useState<Member | null>(null);
   const [payingMember, setPayingMember] = useState<Member | null>(null);
@@ -1861,11 +1864,22 @@ function MembersView({ token, profile }: { token: string; profile?: ProfileInfo 
 
   useEffect(() => { loadMembers(); }, [loadMembers]);
 
+  const adminCount = members.filter(m => m.role === "admin" || m.isMainAdmin || m.adminType === "main_admin" || m.adminType === "admin").length;
+  const regularMemberCount = members.filter(m => m.role !== "admin" && !m.isMainAdmin && m.adminType !== "main_admin" && m.adminType !== "admin").length;
+
   const filtered = useMemo(() =>
-    members.filter(m =>
-      m.name.toLowerCase().includes(search.toLowerCase()) ||
-      m.email.toLowerCase().includes(search.toLowerCase())
-    ), [members, search]);
+    members.filter(m => {
+      const isAdmin = m.role === "admin" || m.isMainAdmin || m.adminType === "main_admin" || m.adminType === "admin";
+      const matchRole =
+        roleFilter === "all" ||
+        (roleFilter === "admin" && isAdmin) ||
+        (roleFilter === "member" && !isAdmin);
+      const matchSearch =
+        m.name.toLowerCase().includes(search.toLowerCase()) ||
+        m.email.toLowerCase().includes(search.toLowerCase()) ||
+        (m.phone && m.phone.toLowerCase().includes(search.toLowerCase()));
+      return matchRole && matchSearch;
+    }), [members, search, roleFilter]);
 
   const openAdd = () => {
     setForm({ name: "", email: "", phone: "", status: "active", password: "", role: "member" });
@@ -1935,9 +1949,14 @@ function MembersView({ token, profile }: { token: string; profile?: ProfileInfo 
     } finally { setSaving(false); }
   };
 
-  const handleDelete = async (id: string) => {
+  const handleDelete = async (m: Member) => {
+    if (m.isMainAdmin || m.adminType === "main_admin") {
+      alert("The Main Administrator / Organization Owner account cannot be deleted.");
+      return;
+    }
+    if (!window.confirm(`Are you sure you want to remove ${m.name} from the organization?`)) return;
     try {
-      await apiFetch("/api/members", { method: "DELETE", token, body: { id } });
+      await apiFetch("/api/members", { method: "DELETE", token, body: { id: m.id, email: m.email } });
       loadMembers();
     } catch (err) { console.error("Delete failed:", err); }
   };
@@ -2011,20 +2030,58 @@ function MembersView({ token, profile }: { token: string; profile?: ProfileInfo 
         </div>
       </div>
 
+      {/* Role Filter Tabs & Stats Bar */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-card p-3 rounded-2xl border border-border">
+        <div className="flex items-center gap-1.5 overflow-x-auto">
+          {[
+            { id: "all", label: "All Directory", count: members.length },
+            { id: "admin", label: "Admins & Leadership", count: adminCount },
+            { id: "member", label: "Regular Members", count: regularMemberCount },
+          ].map(tab => (
+            <button
+              key={tab.id}
+              onClick={() => setRoleFilter(tab.id as any)}
+              className={cn(
+                "px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5",
+                roleFilter === tab.id
+                  ? "bg-primary text-primary-foreground shadow-xs"
+                  : "text-muted-foreground hover:bg-muted hover:text-foreground"
+              )}
+            >
+              <span>{tab.label}</span>
+              <span
+                className={cn(
+                  "px-1.5 py-0.2 rounded-full text-[10px] font-mono",
+                  roleFilter === tab.id ? "bg-white/20 text-white" : "bg-muted text-muted-foreground"
+                )}
+              >
+                {tab.count}
+              </span>
+            </button>
+          ))}
+        </div>
+
+        <div className="flex items-center gap-3 text-xs text-muted-foreground font-mono">
+          <span>Active: <strong className="text-foreground">{members.filter(m => m.status === "active").length}</strong></span>
+          <span>•</span>
+          <span>Dues Pending: <strong className="text-amber-700">{members.filter(m => m.outstanding > 0).length}</strong></span>
+        </div>
+      </div>
+
       <div className="grid grid-cols-3 gap-4">
         <div className="bg-card rounded-2xl p-4 border border-border text-center">
           <p className="text-2xl font-semibold font-mono">{members.filter(m => m.status === "active").length}</p>
-          <p className="text-xs text-muted-foreground mt-1">Active Members</p>
+          <p className="text-xs text-muted-foreground mt-1">Active Accounts</p>
         </div>
         <div className="bg-card rounded-2xl p-4 border border-border text-center">
-          <p className="text-2xl font-semibold font-mono">{members.filter(m => m.status === "inactive").length}</p>
-          <p className="text-xs text-muted-foreground mt-1">Inactive Members</p>
+          <p className="text-2xl font-semibold font-mono text-indigo-700">{adminCount}</p>
+          <p className="text-xs text-muted-foreground mt-1">Admins / Co-Admins</p>
         </div>
         <div className="bg-card rounded-2xl p-4 border border-border text-center">
           <p className="text-2xl font-semibold font-mono text-amber-700">
             {members.filter(m => m.outstanding > 0).length}
           </p>
-          <p className="text-xs text-muted-foreground mt-1">Outstanding</p>
+          <p className="text-xs text-muted-foreground mt-1">Outstanding Dues</p>
         </div>
       </div>
 
@@ -2034,9 +2091,9 @@ function MembersView({ token, profile }: { token: string; profile?: ProfileInfo 
             <div className="w-12 h-12 rounded-2xl bg-muted/60 flex items-center justify-center text-muted-foreground mb-1">
               <Users size={22} />
             </div>
-            <p className="text-sm font-semibold text-foreground">No members registered yet</p>
+            <p className="text-sm font-semibold text-foreground">No accounts found</p>
             <p className="text-xs text-muted-foreground max-w-sm">
-              Your organization roster is empty. Click "+ Add Member" to register members and track contributions, or "Add Admin" to invite co-administrators.
+              No users match the selected role filter or search criteria.
             </p>
           </div>
         ) : (
@@ -2044,68 +2101,99 @@ function MembersView({ token, profile }: { token: string; profile?: ProfileInfo 
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-muted/50 border-b border-border">
-                  {["Member", "Contact", "Joined", "Contributions", "Outstanding", "Status", "Actions"].map(h => (
+                  {["Name & Role", "Contact", "Joined", "Contributions", "Outstanding", "Status", "Actions"].map(h => (
                     <th key={h} className="text-left px-5 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wide whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((m, i) => (
-                  <tr key={m.id} className={cn("border-t border-border/50 hover:bg-muted/20 transition-colors", i % 2 !== 0 && "bg-muted/10")}>
-                    <td className="px-5 py-3.5">
-                      <div className="flex items-center gap-3">
-                        <Avatar initials={m.initials} size="sm" color={m.status === "active" ? "#0B4832" : "#9CA3AF"} />
-                        <span className="font-medium text-foreground">{m.name}</span>
-                      </div>
-                    </td>
-                    <td className="px-5 py-3.5 text-muted-foreground text-xs">
-                      <div>{m.email}</div>
-                      <div>{m.phone}</div>
-                    </td>
-                    <td className="px-5 py-3.5 font-mono text-xs text-muted-foreground">{fmtDate(m.joined)}</td>
-                    <td className="px-5 py-3.5 font-mono font-semibold text-emerald-700">{fmt(m.contributions)}</td>
-                    <td className="px-5 py-3.5 font-mono font-semibold">
-                      <span className={m.outstanding > 0 ? "text-amber-700" : "text-muted-foreground"}>
-                        {m.outstanding > 0 ? fmt(m.outstanding) : "—"}
-                      </span>
-                    </td>
-                    <td className="px-5 py-3.5">
-                      <Badge label={m.status} variant={m.status === "active" ? "success" : "neutral"} />
-                    </td>
-                    <td className="px-5 py-3.5">
-                      <div className="flex items-center gap-1.5">
-                        {m.outstanding > 0 && (
+                {filtered.map((m, i) => {
+                  const isMain = m.isMainAdmin || m.adminType === "main_admin";
+                  const isAdmin = m.role === "admin" || m.adminType === "admin" || isMain;
+                  return (
+                    <tr key={m.id} className={cn("border-t border-border/50 hover:bg-muted/20 transition-colors", i % 2 !== 0 && "bg-muted/10")}>
+                      <td className="px-5 py-3.5">
+                        <div className="flex items-center gap-3">
+                          <Avatar
+                            initials={m.initials}
+                            size="sm"
+                            color={isMain ? "#D97706" : isAdmin ? "#4F46E5" : m.status === "active" ? "#0B4832" : "#9CA3AF"}
+                          />
+                          <div>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-medium text-foreground">{m.name}</span>
+                              {isMain ? (
+                                <span className="px-2 py-0.2 rounded-full text-[10px] font-mono font-bold bg-amber-100 text-amber-900 border border-amber-300 inline-flex items-center gap-1">
+                                  <Crown size={10} className="text-amber-700" /> Main Admin
+                                </span>
+                              ) : isAdmin ? (
+                                <span className="px-2 py-0.2 rounded-full text-[10px] font-mono font-bold bg-indigo-100 text-indigo-900 border border-indigo-300 inline-flex items-center gap-1">
+                                  <Shield size={10} className="text-indigo-700" /> Admin
+                                </span>
+                              ) : (
+                                <span className="px-1.5 py-0.2 rounded-full text-[9px] font-mono text-muted-foreground bg-muted">
+                                  Member
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-[11px] text-muted-foreground font-mono">{m.email}</div>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-5 py-3.5 text-muted-foreground text-xs">
+                        <div>{m.phone || "—"}</div>
+                      </td>
+                      <td className="px-5 py-3.5 font-mono text-xs text-muted-foreground">{fmtDate(m.joined)}</td>
+                      <td className="px-5 py-3.5 font-mono font-semibold text-emerald-700">{fmt(m.contributions)}</td>
+                      <td className="px-5 py-3.5 font-mono font-semibold">
+                        <span className={m.outstanding > 0 ? "text-amber-700" : "text-muted-foreground"}>
+                          {m.outstanding > 0 ? fmt(m.outstanding) : "—"}
+                        </span>
+                      </td>
+                      <td className="px-5 py-3.5">
+                        <Badge label={m.status} variant={m.status === "active" ? "success" : "neutral"} />
+                      </td>
+                      <td className="px-5 py-3.5">
+                        <div className="flex items-center gap-1.5">
+                          {m.outstanding > 0 && (
+                            <button
+                              onClick={() => setPayingMember(m)}
+                              title="Collect / Pay Dues via QR"
+                              className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 text-xs font-semibold cursor-pointer"
+                            >
+                              <CreditCard size={12} />
+                              <span>Pay</span>
+                            </button>
+                          )}
                           <button
-                            onClick={() => setPayingMember(m)}
-                            title="Collect / Pay Dues via QR"
-                            className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 text-xs font-semibold cursor-pointer"
+                            onClick={() =>
+                              exportContributionCertificatePDF({
+                                member: m,
+                                organizationName: profile?.organization || "FundFlow Community Trust",
+                              })
+                            }
+                            title="Download Annual Contribution Certificate (PDF)"
+                            className="w-8 h-8 rounded-lg flex items-center justify-center text-emerald-700 hover:bg-emerald-50 border border-emerald-200/60 transition-colors cursor-pointer"
                           >
-                            <CreditCard size={12} />
-                            <span>Pay</span>
+                            <FileCheck size={14} />
                           </button>
-                        )}
-                        <button
-                          onClick={() =>
-                            exportContributionCertificatePDF({
-                              member: m,
-                              organizationName: profile?.organization || "FundFlow Community Trust",
-                            })
-                          }
-                          title="Download Annual Contribution Certificate (PDF)"
-                          className="w-8 h-8 rounded-lg flex items-center justify-center text-emerald-700 hover:bg-emerald-50 border border-emerald-200/60 transition-colors cursor-pointer"
-                        >
-                          <FileCheck size={14} />
-                        </button>
-                        <button onClick={() => openEdit(m)} title="Edit Member" className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground transition-colors cursor-pointer">
-                          <Edit2 size={14} />
-                        </button>
-                        <button onClick={() => handleDelete(m.id)} title="Delete Member" className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:bg-red-50 hover:text-red-600 transition-colors cursor-pointer">
-                          <Trash2 size={14} />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                          <button onClick={() => openEdit(m)} title="Edit Member" className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground transition-colors cursor-pointer">
+                            <Edit2 size={14} />
+                          </button>
+                          {!isMain ? (
+                            <button onClick={() => handleDelete(m)} title="Delete Member" className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:bg-red-50 hover:text-red-600 transition-colors cursor-pointer">
+                              <Trash2 size={14} />
+                            </button>
+                          ) : (
+                            <div title="Main Admin Protected" className="w-8 h-8 rounded-lg flex items-center justify-center text-amber-600/50 cursor-not-allowed">
+                              <Lock size={13} />
+                            </div>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -4442,6 +4530,24 @@ function MemberHomeView({
   const totalExpenses = transactions.filter(t => t.type === "expense").reduce((s, t) => s + t.amount, 0);
   const activeMembers = members.filter(m => m.status === "active").length;
 
+  const mainAdmin = useMemo(() => {
+    return members.find(m => m.isMainAdmin || m.adminType === "main_admin") ||
+      members.find(m => m.role === "admin" && m.email === "admin@fundflow.org") ||
+      members.find(m => m.role === "admin");
+  }, [members]);
+
+  const otherAdmins = useMemo(() => {
+    return members.filter(m =>
+      (m.role === "admin" || m.adminType === "admin") &&
+      m.id !== mainAdmin?.id &&
+      m.email?.toLowerCase() !== mainAdmin?.email?.toLowerCase()
+    );
+  }, [members, mainAdmin]);
+
+  const allAdmins = useMemo(() => {
+    return mainAdmin ? [mainAdmin, ...otherAdmins] : otherAdmins;
+  }, [mainAdmin, otherAdmins]);
+
   const handlePaymentSuccess = async (payment: {
     amount: number;
     category: string;
@@ -4649,6 +4755,101 @@ function MemberHomeView({
           <FilePlus size={14} />
           <span>Apply for Assistance</span>
         </button>
+      </div>
+
+      {/* Organization Leadership & Administration Directory */}
+      <div className="bg-card rounded-2xl border border-border p-5 shadow-xs flex flex-col gap-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-lg bg-amber-100 text-amber-800 flex items-center justify-center">
+              <Crown size={16} />
+            </div>
+            <div>
+              <h3 className="font-semibold text-foreground text-base" style={{ fontFamily: "Fraunces, serif" }}>
+                Organization Leadership & Administrators
+              </h3>
+              <p className="text-xs text-muted-foreground">
+                Primary executive and administrative points of contact for FundFlow governance
+              </p>
+            </div>
+          </div>
+          <span className="text-xs font-mono px-2.5 py-1 rounded-lg bg-muted text-muted-foreground">
+            {allAdmins.length} {allAdmins.length === 1 ? "Administrator" : "Administrators"}
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-1">
+          {/* Main Administrator Spotlight */}
+          {mainAdmin ? (
+            <div className="rounded-2xl p-4 border border-amber-200/80 bg-gradient-to-br from-amber-50/70 via-white to-amber-50/30 flex flex-col justify-between gap-3 shadow-xs">
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex items-center gap-3">
+                  <Avatar initials={mainAdmin.initials} size="md" color="#D97706" />
+                  <div>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <h4 className="font-semibold text-foreground text-sm">{mainAdmin.name}</h4>
+                      <span className="px-2 py-0.2 rounded-full text-[10px] font-mono font-bold bg-amber-200 text-amber-900 border border-amber-300 inline-flex items-center gap-1">
+                        <Crown size={10} className="text-amber-800" /> Main Admin
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground mt-0.5">Primary Organization Owner & Executive Head</p>
+                  </div>
+                </div>
+                <Badge label={mainAdmin.status || "active"} variant={mainAdmin.status === "active" ? "success" : "neutral"} />
+              </div>
+
+              <div className="flex flex-col gap-1 text-xs text-muted-foreground border-t border-amber-200/60 pt-2.5">
+                <div className="flex items-center gap-2">
+                  <Mail size={12} className="text-amber-700 shrink-0" />
+                  <span className="font-mono text-foreground text-[11px]">{mainAdmin.email}</span>
+                </div>
+                {mainAdmin.phone && (
+                  <div className="flex items-center gap-2">
+                    <Phone size={12} className="text-amber-700 shrink-0" />
+                    <span className="font-mono text-foreground text-[11px]">{mainAdmin.phone}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="rounded-2xl p-4 border border-border bg-muted/20 flex items-center justify-center text-xs text-muted-foreground">
+              Main Admin not designated
+            </div>
+          )}
+
+          {/* Co-Administrators Column */}
+          <div className="flex flex-col gap-2.5">
+            {otherAdmins.length === 0 ? (
+              <div className="h-full min-h-[110px] rounded-2xl p-4 border border-dashed border-border bg-muted/10 flex flex-col items-center justify-center text-center text-muted-foreground">
+                <Shield size={20} className="text-muted-foreground/60 mb-1" />
+                <p className="text-xs font-medium text-foreground">No Co-Admins Registered</p>
+                <p className="text-[11px] text-muted-foreground mt-0.5">
+                  The Main Admin manages all organizational and fund decisions.
+                </p>
+              </div>
+            ) : (
+              otherAdmins.map(admin => (
+                <div key={admin.id} className="rounded-2xl p-3.5 border border-indigo-200/70 bg-gradient-to-br from-indigo-50/50 via-white to-white flex items-center justify-between gap-3 shadow-xs">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <Avatar initials={admin.initials} size="sm" color="#4F46E5" />
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="font-medium text-foreground text-xs truncate">{admin.name}</span>
+                        <span className="px-1.5 py-0.2 rounded-full text-[9px] font-mono font-bold bg-indigo-100 text-indigo-900 border border-indigo-200 inline-flex items-center gap-1">
+                          <Shield size={9} className="text-indigo-700" /> Admin
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-muted-foreground font-mono truncate">{admin.email}</p>
+                    </div>
+                  </div>
+                  {admin.phone && (
+                    <span className="text-[10px] font-mono text-muted-foreground shrink-0 hidden sm:inline">{admin.phone}</span>
+                  )}
+                </div>
+              ))
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Recent Activity */}
