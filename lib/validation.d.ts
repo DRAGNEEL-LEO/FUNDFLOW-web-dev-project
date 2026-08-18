@@ -15,3 +15,4 @@ export function validateLoginPayload(data?: any): ValidationResult;
 export function validateTransactionPayload(data?: any): ValidationResult;
 export function validateMemberPayload(data?: any, isUpdate?: boolean): ValidationResult;
 export function validateAnnouncementPayload(data?: any): ValidationResult;
+export function validateWelfareRequestPayload(data?: any, isUpdate?: boolean): ValidationResult;

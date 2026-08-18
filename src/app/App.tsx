@@ -7,6 +7,7 @@ import {
   validateTransactionPayload,
   validateMemberPayload,
   validateAnnouncementPayload,
+  validateWelfareRequestPayload,
 } from "../../lib/validation.js";
 import {
   LayoutDashboard, Users, TrendingUp, TrendingDown, BarChart2,
@@ -16,6 +17,8 @@ import {
   User, ChevronRight, Activity, Target,
   ArrowRight, Star, Lock, Shield, Settings,
   FileText, SlidersHorizontal, FileCheck, QrCode, Building2,
+  HeartHandshake, Clock, CheckCircle2, XCircle, Send,
+  FilePlus, ShieldAlert,
 } from "lucide-react";
 import {
   AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
@@ -42,6 +45,7 @@ type View =
   | "expenses"
   | "reports"
   | "announcements"
+  | "welfare"
   | "ai"
   | "member-home";
 
@@ -88,6 +92,43 @@ interface Announcement {
   date: string;
   priority: "high" | "medium" | "low";
   author: string;
+}
+
+type WelfareCategory =
+  | "Medical Emergency"
+  | "Education Grant"
+  | "Disaster Relief"
+  | "Family Welfare"
+  | "Community Project"
+  | "Other";
+
+type WelfareStatus =
+  | "pending"
+  | "under_review"
+  | "approved"
+  | "disbursed"
+  | "rejected";
+
+type WelfareUrgency = "urgent" | "high" | "medium" | "low";
+
+interface WelfareRequest {
+  id: string;
+  orgId?: string;
+  memberId: string;
+  memberName: string;
+  memberEmail: string;
+  memberPhone?: string;
+  category: WelfareCategory;
+  amountRequested: number;
+  amountApproved?: number;
+  urgency: WelfareUrgency;
+  reason: string;
+  bankOrWalletDetails: string;
+  date: string;
+  status: WelfareStatus;
+  adminNote?: string;
+  disbursedDate?: string;
+  disbursedTxId?: string;
 }
 
 /* ─────────────────────────── HELPERS ─────────────────────────── */
@@ -926,12 +967,14 @@ const ADMIN_NAV = [
   { id: "income", label: "Fund Income", icon: TrendingUp },
   { id: "expenses", label: "Expenses", icon: TrendingDown },
   { id: "reports", label: "Reports", icon: BarChart2 },
+  { id: "welfare", label: "Welfare & Grants", icon: HeartHandshake },
   { id: "announcements", label: "Announcements", icon: Megaphone },
   { id: "ai", label: "AI Analysis", icon: Sparkles },
 ];
 
 const MEMBER_NAV = [
   { id: "member-home", label: "My Dashboard", icon: LayoutDashboard },
+  { id: "welfare", label: "Welfare & Aid", icon: HeartHandshake },
   { id: "announcements", label: "Announcements", icon: Megaphone },
   { id: "ai", label: "AI Insights", icon: Sparkles },
 ];
@@ -2789,6 +2832,667 @@ function AnnouncementsView({ role, token }: { role: Role; token: string }) {
   );
 }
 
+/* ─────────────────────────── WELFARE & AID GRANTS ─────────────────────────── */
+const WELFARE_CATEGORIES: WelfareCategory[] = [
+  "Medical Emergency",
+  "Education Grant",
+  "Disaster Relief",
+  "Family Welfare",
+  "Community Project",
+  "Other",
+];
+
+const PRESET_GRANT_AMOUNTS = [3000, 5000, 10000, 20000];
+
+function WelfareView({
+  role,
+  token,
+  userEmail,
+  userName,
+  profile,
+}: {
+  role: Role;
+  token: string;
+  userEmail: string;
+  userName: string;
+  profile?: ProfileInfo;
+}) {
+  const [requests, setRequests] = useState<WelfareRequest[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [modal, setModal] = useState(false);
+  const [reviewTarget, setReviewTarget] = useState<WelfareRequest | null>(null);
+  const [filterTab, setFilterTab] = useState<"all" | "pending" | "under_review" | "approved" | "disbursed" | "rejected">("all");
+  const [search, setSearch] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  // Application form state
+  const [form, setForm] = useState<{
+    category: WelfareCategory;
+    amountRequested: string;
+    urgency: WelfareUrgency;
+    reason: string;
+    bankOrWalletDetails: string;
+  }>({
+    category: "Medical Emergency",
+    amountRequested: "5000",
+    urgency: "urgent",
+    reason: "",
+    bankOrWalletDetails: "bKash Personal: " + (profile?.phone || "+880 1700 000000"),
+  });
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+
+  // Admin decision form state
+  const [decisionForm, setDecisionForm] = useState<{
+    status: WelfareStatus;
+    amountApproved: string;
+    adminNote: string;
+  }>({
+    status: "approved",
+    amountApproved: "",
+    adminNote: "",
+  });
+
+  const loadRequests = useCallback(() => {
+    setLoading(true);
+    apiFetch<WelfareRequest[]>("/api/welfare-requests", { token })
+      .then(setRequests)
+      .catch((e) => console.error("Failed to load welfare requests:", e))
+      .finally(() => setLoading(false));
+  }, [token]);
+
+  useEffect(() => {
+    loadRequests();
+  }, [loadRequests]);
+
+  const handleApply = async () => {
+    const val = validateWelfareRequestPayload({
+      category: form.category,
+      amountRequested: form.amountRequested,
+      urgency: form.urgency,
+      reason: form.reason,
+      bankOrWalletDetails: form.bankOrWalletDetails,
+    });
+
+    if (!val.isValid) {
+      setFieldErrors(val.errors as Record<string, string>);
+      return;
+    }
+    setFieldErrors({});
+
+    setSubmitting(true);
+    try {
+      await apiFetch("/api/welfare-requests", {
+        method: "POST",
+        token,
+        body: {
+          category: form.category,
+          amountRequested: Number(form.amountRequested),
+          urgency: form.urgency,
+          reason: form.reason,
+          bankOrWalletDetails: form.bankOrWalletDetails,
+          memberEmail: userEmail,
+          memberName: userName,
+          memberPhone: profile?.phone || "",
+        },
+      });
+      loadRequests();
+      setModal(false);
+      setForm({
+        category: "Medical Emergency",
+        amountRequested: "5000",
+        urgency: "urgent",
+        reason: "",
+        bankOrWalletDetails: "bKash Personal: " + (profile?.phone || "+880 1700 000000"),
+      });
+    } catch (err: any) {
+      if (err?.details) setFieldErrors(err.details);
+      console.error(err);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleOpenDecision = (req: WelfareRequest) => {
+    setReviewTarget(req);
+    setDecisionForm({
+      status: req.status === "pending" ? "under_review" : req.status,
+      amountApproved: String(req.amountApproved || req.amountRequested),
+      adminNote: req.adminNote || "",
+    });
+  };
+
+  const handleSaveDecision = async () => {
+    if (!reviewTarget) return;
+    setSubmitting(true);
+    try {
+      await apiFetch("/api/welfare-requests", {
+        method: "PUT",
+        token,
+        body: {
+          id: reviewTarget.id,
+          status: decisionForm.status,
+          amountApproved: Number(decisionForm.amountApproved || reviewTarget.amountRequested),
+          adminNote: decisionForm.adminNote,
+        },
+      });
+      loadRequests();
+      setReviewTarget(null);
+    } catch (err) {
+      console.error("Decision save failed:", err);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleCancelRequest = async (id: string) => {
+    if (!window.confirm("Are you sure you want to cancel this assistance application?")) return;
+    try {
+      await apiFetch("/api/welfare-requests", {
+        method: "DELETE",
+        token,
+        body: { id },
+      });
+      loadRequests();
+    } catch (err) {
+      console.error("Cancel failed:", err);
+    }
+  };
+
+  const filteredRequests = useMemo(() => {
+    return requests.filter((r) => {
+      const matchFilter = filterTab === "all" || r.status === filterTab;
+      const matchSearch =
+        search === "" ||
+        (r.memberName && r.memberName.toLowerCase().includes(search.toLowerCase())) ||
+        (r.category && r.category.toLowerCase().includes(search.toLowerCase())) ||
+        (r.reason && r.reason.toLowerCase().includes(search.toLowerCase())) ||
+        (r.id && r.id.toLowerCase().includes(search.toLowerCase()));
+      return matchFilter && matchSearch;
+    });
+  }, [requests, filterTab, search]);
+
+  const totalRequested = requests.reduce((s, r) => s + (r.amountRequested || 0), 0);
+  const totalDisbursed = requests
+    .filter((r) => r.status === "disbursed")
+    .reduce((s, r) => s + (r.amountApproved || r.amountRequested || 0), 0);
+  const pendingCount = requests.filter((r) => r.status === "pending" || r.status === "under_review").length;
+
+  const urgencyStyles: Record<WelfareUrgency, { label: string; style: string }> = {
+    urgent: { label: "Urgent", style: "bg-red-50 text-red-700 border-red-200" },
+    high: { label: "High Priority", style: "bg-amber-50 text-amber-700 border-amber-200" },
+    medium: { label: "Normal", style: "bg-blue-50 text-blue-700 border-blue-200" },
+    low: { label: "Low Priority", style: "bg-gray-100 text-gray-700 border-gray-200" },
+  };
+
+  const statusBadges: Record<WelfareStatus, { label: string; variant: "warning" | "info" | "success" | "danger" | "neutral" }> = {
+    pending: { label: "Pending Review", variant: "warning" },
+    under_review: { label: "Under Evaluation", variant: "info" },
+    approved: { label: "Approved for Payment", variant: "success" },
+    disbursed: { label: "Disbursed / Paid", variant: "success" },
+    rejected: { label: "Declined", variant: "danger" },
+  };
+
+  return (
+    <div className="p-6 flex flex-col gap-6" style={{ fontFamily: "Outfit, sans-serif" }}>
+      {/* Header Banner */}
+      <div
+        className="rounded-2xl p-6 border border-border relative overflow-hidden flex flex-col md:flex-row md:items-center justify-between gap-4"
+        style={{ background: "linear-gradient(135deg, #09182A 0%, #153e35 60%, #0B4832 100%)" }}
+      >
+        <div className="absolute inset-0 opacity-15" style={{ backgroundImage: "radial-gradient(circle at 75% 50%, #14C768 0%, transparent 60%)" }} />
+        <div className="relative z-10">
+          <div className="flex items-center gap-2">
+            <span className="px-2.5 py-0.5 rounded-full bg-emerald-400/20 text-emerald-300 text-[10px] font-mono font-bold tracking-wide border border-emerald-400/30">
+              {role === "admin" ? "WELFARE GOVERNANCE" : "COMMUNITY AID DESK"}
+            </span>
+            <p className="text-xs text-white/70">
+              {role === "admin" ? "Relief Disbursements & Governance" : "Organization Welfare & Grant Fund"}
+            </p>
+          </div>
+          <h2 className="text-2xl font-semibold text-white mt-1" style={{ fontFamily: "Fraunces, serif" }}>
+            {role === "admin" ? "Welfare Claims & Assistance Decisions" : "Emergency Relief & Welfare Grants"}
+          </h2>
+          <p className="text-white/70 text-xs mt-1 max-w-xl leading-relaxed">
+            {role === "admin"
+              ? "Review emergency relief applications, approve support packages, and directly disburse grants to the organizational expense ledger."
+              : "Facing a sudden medical emergency, educational expense, or hardship? Submit a confidential financial grant request."}
+          </p>
+        </div>
+
+        {role === "member" && (
+          <button
+            onClick={() => {
+              setFieldErrors({});
+              setModal(true);
+            }}
+            className="relative z-10 flex items-center gap-2 px-5 py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-white text-xs font-semibold shadow-lg shadow-emerald-950/40 transition-all cursor-pointer w-fit"
+          >
+            <FilePlus size={16} />
+            <span>Apply for Financial Aid</span>
+          </button>
+        )}
+      </div>
+
+      {/* Metric Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="bg-card rounded-2xl p-5 border border-border shadow-xs">
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-muted-foreground">
+              {role === "admin" ? "Total Claims Volume" : "My Applications"}
+            </p>
+            <div className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-700 flex items-center justify-center">
+              <HeartHandshake size={16} />
+            </div>
+          </div>
+          <p className="text-2xl font-semibold font-mono text-foreground mt-2">
+            {role === "admin" ? fmt(totalRequested) : requests.length}
+          </p>
+          <p className="text-xs text-muted-foreground mt-1">
+            {role === "admin" ? `${requests.length} total claims submitted` : `${requests.length} applications logged`}
+          </p>
+        </div>
+
+        <div className="bg-card rounded-2xl p-5 border border-border shadow-xs">
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-muted-foreground">Pending Decisions</p>
+            <div className="w-8 h-8 rounded-lg bg-amber-50 text-amber-700 flex items-center justify-center">
+              <Clock size={16} />
+            </div>
+          </div>
+          <p className="text-2xl font-semibold font-mono text-amber-700 mt-2">{pendingCount}</p>
+          <p className="text-xs text-muted-foreground mt-1">Awaiting committee action</p>
+        </div>
+
+        <div className="bg-card rounded-2xl p-5 border border-border shadow-xs">
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-muted-foreground">
+              {role === "admin" ? "Disbursed Aid (YTD)" : "Aid Received"}
+            </p>
+            <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-700 flex items-center justify-center">
+              <CheckCircle2 size={16} />
+            </div>
+          </div>
+          <p className="text-2xl font-semibold font-mono text-emerald-700 mt-2">{fmt(totalDisbursed)}</p>
+          <p className="text-xs text-muted-foreground mt-1">Successfully transferred</p>
+        </div>
+      </div>
+
+      {/* Filter / Search Bar */}
+      <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between bg-card p-3 rounded-2xl border border-border">
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
+          {(["all", "pending", "under_review", "approved", "disbursed", "rejected"] as const).map((tab) => {
+            const count = tab === "all" ? requests.length : requests.filter((r) => r.status === tab).length;
+            const labels: Record<string, string> = {
+              all: "All",
+              pending: "Pending",
+              under_review: "In Review",
+              approved: "Approved",
+              disbursed: "Disbursed",
+              rejected: "Declined",
+            };
+            return (
+              <button
+                key={tab}
+                onClick={() => setFilterTab(tab)}
+                className={cn(
+                  "px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5",
+                  filterTab === tab
+                    ? "bg-primary text-primary-foreground shadow-xs"
+                    : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                )}
+              >
+                <span>{labels[tab]}</span>
+                <span
+                  className={cn(
+                    "px-1.5 py-0.2 rounded-full text-[10px] font-mono",
+                    filterTab === tab ? "bg-white/20 text-white" : "bg-muted text-muted-foreground"
+                  )}
+                >
+                  {count}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="relative max-w-xs w-full">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search claims or member..."
+            className="w-full pl-8.5 pr-3 py-1.5 rounded-lg border border-border bg-input-background text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+          />
+        </div>
+      </div>
+
+      {/* Applications List */}
+      {loading ? (
+        <div className="p-12 text-center text-muted-foreground">Loading applications...</div>
+      ) : filteredRequests.length === 0 ? (
+        <div className="bg-card rounded-2xl border border-border py-14 px-4 text-center text-muted-foreground flex flex-col items-center justify-center gap-3">
+          <div className="w-12 h-12 rounded-2xl bg-muted/60 flex items-center justify-center text-muted-foreground">
+            <HeartHandshake size={24} />
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-foreground">No welfare grant applications found</p>
+            <p className="text-xs text-muted-foreground max-w-sm mt-1">
+              {role === "member"
+                ? "If you or your family require emergency assistance or student funding, click 'Apply for Financial Aid' above."
+                : "No applications match the selected filter."}
+            </p>
+          </div>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-4">
+          {filteredRequests.map((req) => {
+            const urgency = urgencyStyles[req.urgency] || urgencyStyles.medium;
+            const badge = statusBadges[req.status] || statusBadges.pending;
+
+            // Stepper calculation for Member progress visualizer
+            const stepOrder: WelfareStatus[] = ["pending", "under_review", "approved", "disbursed"];
+            const currentStepIdx = stepOrder.indexOf(req.status);
+
+            return (
+              <div key={req.id} className="bg-card rounded-2xl p-5 border border-border hover:shadow-sm transition-shadow flex flex-col gap-4">
+                {/* Header Row */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-border pb-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center flex-shrink-0 font-bold text-xs">
+                      {req.category.slice(0, 2).toUpperCase()}
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h4 className="font-semibold text-foreground text-base" style={{ fontFamily: "Fraunces, serif" }}>
+                          {req.category}
+                        </h4>
+                        <span className={cn("px-2 py-0.5 rounded-full text-[10px] font-mono font-medium border", urgency.style)}>
+                          {urgency.label}
+                        </span>
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        Claim ID: <span className="font-mono">{req.id}</span> • Submitted on {fmtDate(req.date)}
+                        {role === "admin" && <span> • by <strong className="text-foreground">{req.memberName}</strong> ({req.memberEmail})</span>}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-3 self-start sm:self-center">
+                    <div className="text-right">
+                      <p className="text-xs text-muted-foreground">Amount Requested</p>
+                      <p className="text-lg font-semibold font-mono text-foreground">{fmt(req.amountRequested)}</p>
+                      {req.amountApproved !== undefined && req.status !== "rejected" && req.amountApproved !== req.amountRequested && (
+                        <p className="text-[11px] text-emerald-700 font-mono">Approved: {fmt(req.amountApproved)}</p>
+                      )}
+                    </div>
+                    <Badge label={badge.label} variant={badge.variant} />
+                  </div>
+                </div>
+
+                {/* Details Grid */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+                  <div className="p-3 rounded-xl bg-muted/40 border border-border">
+                    <p className="text-muted-foreground font-medium">Justification & Reason:</p>
+                    <p className="text-foreground mt-1 leading-relaxed">{req.reason}</p>
+                  </div>
+                  <div className="p-3 rounded-xl bg-muted/40 border border-border">
+                    <p className="text-muted-foreground font-medium">Payout Account / Wallet:</p>
+                    <p className="text-foreground font-mono font-medium mt-1">{req.bankOrWalletDetails}</p>
+                    {req.memberPhone && <p className="text-muted-foreground font-mono mt-0.5">Phone: {req.memberPhone}</p>}
+                  </div>
+                  <div className="p-3 rounded-xl bg-muted/40 border border-border flex flex-col justify-between">
+                    <div>
+                      <p className="text-muted-foreground font-medium">Resolution Notes:</p>
+                      <p className="text-foreground mt-1">
+                        {req.adminNote || (req.status === "pending" ? "Waiting for review committee." : "No additional notes.")}
+                      </p>
+                    </div>
+                    {req.disbursedTxId && (
+                      <p className="text-[10px] font-mono text-emerald-700 mt-2">
+                        Ledger Ref: {req.disbursedTxId} ({fmtDate(req.disbursedDate || req.date)})
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Visual Status Stepper (Member View or Progress Flow) */}
+                {req.status !== "rejected" ? (
+                  <div className="pt-2">
+                    <div className="grid grid-cols-4 gap-2 text-center text-[11px]">
+                      {[
+                        { label: "1. Submitted", active: currentStepIdx >= 0 },
+                        { label: "2. Under Review", active: currentStepIdx >= 1 },
+                        { label: "3. Approved", active: currentStepIdx >= 2 },
+                        { label: "4. Disbursed", active: currentStepIdx >= 3 },
+                      ].map((step, idx) => (
+                        <div key={idx} className="flex flex-col items-center gap-1">
+                          <div
+                            className={cn(
+                              "w-full h-1.5 rounded-full transition-all",
+                              step.active ? "bg-emerald-600" : "bg-muted"
+                            )}
+                          />
+                          <span className={cn("font-medium", step.active ? "text-emerald-700" : "text-muted-foreground")}>
+                            {step.label}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="p-2.5 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs flex items-center gap-2">
+                    <XCircle size={14} className="shrink-0" />
+                    <span>Application declined. Please review the feedback notes above or contact the administration.</span>
+                  </div>
+                )}
+
+                {/* Action Buttons */}
+                <div className="flex items-center justify-end gap-2 pt-1 border-t border-border">
+                  {role === "admin" && (
+                    <Btn size="sm" onClick={() => handleOpenDecision(req)}>
+                      <SlidersHorizontal size={13} />
+                      <span>Review & Decision</span>
+                    </Btn>
+                  )}
+                  {role === "member" && req.status === "pending" && (
+                    <button
+                      onClick={() => handleCancelRequest(req.id)}
+                      className="text-xs text-red-600 hover:text-red-700 hover:underline px-3 py-1.5 cursor-pointer font-medium"
+                    >
+                      Cancel Application
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Member Application Modal */}
+      <Modal open={modal} onClose={() => setModal(false)} title="Emergency Assistance & Grant Application">
+        <div className="flex flex-col gap-4">
+          <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-800">
+            <p className="font-semibold flex items-center gap-1.5">
+              <ShieldAlert size={14} /> Confidential Welfare Request
+            </p>
+            <p className="mt-0.5 text-emerald-700">
+              Applications are reviewed securely by the fund committee. Approved assistance will be transferred to your designated account.
+            </p>
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <label className="text-sm font-medium text-foreground">Assistance Category</label>
+            <select
+              value={form.category}
+              onChange={(e) => setForm((f) => ({ ...f, category: e.target.value as WelfareCategory }))}
+              className="px-3 py-2.5 rounded-lg border border-border bg-input-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring transition-all"
+            >
+              {WELFARE_CATEGORIES.map((cat) => (
+                <option key={cat} value={cat}>
+                  {cat}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <Input
+              label="Requested Amount (Tk)"
+              type="number"
+              value={form.amountRequested}
+              onChange={(v) => setForm((f) => ({ ...f, amountRequested: v }))}
+              placeholder="e.g. 5000"
+              error={fieldErrors.amountRequested}
+            />
+            <div className="flex items-center gap-2 mt-2">
+              <span className="text-[11px] text-muted-foreground">Quick Select:</span>
+              {PRESET_GRANT_AMOUNTS.map((amt) => (
+                <button
+                  key={amt}
+                  type="button"
+                  onClick={() => setForm((f) => ({ ...f, amountRequested: String(amt) }))}
+                  className="px-2.5 py-1 rounded-lg bg-muted hover:bg-muted/80 text-[11px] font-mono font-medium transition-colors cursor-pointer"
+                >
+                  Tk {amt.toLocaleString()}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <label className="text-sm font-medium text-foreground">Urgency Level</label>
+            <div className="grid grid-cols-4 gap-2">
+              {(["urgent", "high", "medium", "low"] as const).map((urg) => (
+                <button
+                  key={urg}
+                  type="button"
+                  onClick={() => setForm((f) => ({ ...f, urgency: urg }))}
+                  className={cn(
+                    "py-2 rounded-lg text-xs font-semibold capitalize border transition-all cursor-pointer",
+                    form.urgency === urg
+                      ? "bg-primary text-primary-foreground border-primary shadow-xs"
+                      : "border-border text-muted-foreground hover:bg-muted"
+                  )}
+                >
+                  {urg}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <label className="text-sm font-medium text-foreground">Reason & Justification</label>
+            <textarea
+              value={form.reason}
+              onChange={(e) => setForm((f) => ({ ...f, reason: e.target.value }))}
+              placeholder="Describe the medical situation, educational need, or emergency circumstance..."
+              rows={3}
+              className={cn(
+                "px-3 py-2.5 rounded-lg border bg-input-background text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 resize-none transition-all",
+                fieldErrors.reason ? "border-red-500 focus:ring-red-500" : "border-border focus:ring-ring"
+              )}
+            />
+            {fieldErrors.reason && (
+              <p className="text-xs text-red-500 flex items-center gap-1 font-medium">
+                <AlertCircle size={12} /> {fieldErrors.reason}
+              </p>
+            )}
+          </div>
+
+          <Input
+            label="Payout Receiving Details (bKash / Nagad / Bank A/C)"
+            value={form.bankOrWalletDetails}
+            onChange={(v) => setForm((f) => ({ ...f, bankOrWalletDetails: v }))}
+            placeholder="e.g. bKash Personal: 01712-345678 or City Bank AC: 123456"
+            error={fieldErrors.bankOrWalletDetails}
+          />
+
+          <div className="flex gap-3 mt-2">
+            <Btn onClick={() => setModal(false)} variant="ghost" className="flex-1 justify-center">
+              Cancel
+            </Btn>
+            <Btn onClick={handleApply} disabled={submitting} className="flex-1 justify-center">
+              <Send size={14} /> {submitting ? "Submitting..." : "Submit Application"}
+            </Btn>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Admin Decision Modal */}
+      {reviewTarget && (
+        <Modal open={!!reviewTarget} onClose={() => setReviewTarget(null)} title="Review Welfare Claim">
+          <div className="flex flex-col gap-4">
+            <div className="p-3.5 rounded-xl bg-muted/50 border border-border text-xs">
+              <div className="flex justify-between items-center">
+                <span className="font-semibold text-foreground">{reviewTarget.memberName}</span>
+                <span className="font-mono text-muted-foreground">{reviewTarget.memberEmail}</span>
+              </div>
+              <p className="mt-1 text-muted-foreground font-medium">Category: {reviewTarget.category}</p>
+              <p className="mt-0.5 text-foreground">{reviewTarget.reason}</p>
+              <p className="mt-1.5 font-mono text-[11px] text-emerald-800 bg-emerald-50 p-1.5 rounded-lg border border-emerald-200">
+                Payout destination: {reviewTarget.bankOrWalletDetails}
+              </p>
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <label className="text-sm font-medium text-foreground">Decision Status</label>
+              <select
+                value={decisionForm.status}
+                onChange={(e) => setDecisionForm((f) => ({ ...f, status: e.target.value as WelfareStatus }))}
+                className="px-3 py-2.5 rounded-lg border border-border bg-input-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+              >
+                <option value="pending">Pending</option>
+                <option value="under_review">Under Evaluation</option>
+                <option value="approved">Approved for Payment</option>
+                <option value="disbursed">Disbursed & Record in Ledger</option>
+                <option value="rejected">Decline / Reject</option>
+              </select>
+            </div>
+
+            <Input
+              label="Approved Amount (Tk)"
+              type="number"
+              value={decisionForm.amountApproved}
+              onChange={(v) => setDecisionForm((f) => ({ ...f, amountApproved: v }))}
+              placeholder={String(reviewTarget.amountRequested)}
+            />
+
+            <div className="flex flex-col gap-1.5">
+              <label className="text-sm font-medium text-foreground">Admin Feedback / Decision Note</label>
+              <textarea
+                value={decisionForm.adminNote}
+                onChange={(e) => setDecisionForm((f) => ({ ...f, adminNote: e.target.value }))}
+                placeholder="e.g. Approved by Welfare Committee. Transfer ref: TRX-9901."
+                rows={2}
+                className="px-3 py-2 rounded-lg border border-border bg-input-background text-foreground text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-none"
+              />
+            </div>
+
+            {decisionForm.status === "disbursed" && (
+              <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-xs flex items-center gap-2">
+                <AlertCircle size={15} className="shrink-0 text-amber-700" />
+                <span>
+                  Setting status to <strong>Disbursed</strong> will automatically record a <strong>Tk {Number(decisionForm.amountApproved || reviewTarget.amountRequested).toLocaleString()}</strong> expense under category <em>Welfare</em> in the financial ledger.
+                </span>
+              </div>
+            )}
+
+            <div className="flex gap-3 mt-2">
+              <Btn onClick={() => setReviewTarget(null)} variant="ghost" className="flex-1 justify-center">
+                Cancel
+              </Btn>
+              <Btn onClick={handleSaveDecision} disabled={submitting} className="flex-1 justify-center">
+                <Check size={14} /> {submitting ? "Saving..." : "Confirm Decision"}
+              </Btn>
+            </div>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
 /* ─────────────────────────── AI ANALYSIS ─────────────────────────── */
 interface HealthFactor {
   name: string;
@@ -3692,7 +4396,15 @@ function AIView({ role, token, profile }: { role: Role; token: string; profile?:
 
 
 /* ─────────────────────────── MEMBER HOME ─────────────────────────── */
-function MemberHomeView({ token, userEmail }: { token: string; userEmail: string }) {
+function MemberHomeView({
+  token,
+  userEmail,
+  onNavigateWelfare,
+}: {
+  token: string;
+  userEmail: string;
+  onNavigateWelfare?: () => void;
+}) {
   const [me, setMe] = useState<Member | null>(null);
   const [myTxs, setMyTxs] = useState<Transaction[]>([]);
   const [announcements, setAnn] = useState<Announcement[]>([]);
@@ -3909,6 +4621,36 @@ function MemberHomeView({ token, userEmail }: { token: string; userEmail: string
         </div>
       </div>
 
+      {/* Emergency Assistance & Welfare Banner */}
+      <div className="rounded-2xl p-5 border border-indigo-200/80 bg-gradient-to-br from-indigo-50/80 via-white to-purple-50/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-xs">
+        <div className="flex items-center gap-3.5">
+          <div className="w-11 h-11 rounded-xl bg-indigo-100 text-indigo-700 flex items-center justify-center flex-shrink-0">
+            <HeartHandshake size={22} />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-800 text-[10px] font-mono font-bold">
+                WELFARE AID
+              </span>
+              <p className="text-xs font-semibold text-indigo-900">Emergency Relief & Assistance</p>
+            </div>
+            <h4 className="font-semibold text-foreground text-base mt-0.5" style={{ fontFamily: "Fraunces, serif" }}>
+              Facing an emergency or need financial aid?
+            </h4>
+            <p className="text-xs text-muted-foreground mt-0.5 max-w-lg">
+              Apply for financial grants from the welfare fund for medical emergencies, student support, or disaster relief.
+            </p>
+          </div>
+        </div>
+        <button
+          onClick={onNavigateWelfare}
+          className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-xs transition-all cursor-pointer whitespace-nowrap"
+        >
+          <FilePlus size={14} />
+          <span>Apply for Assistance</span>
+        </button>
+      </div>
+
       {/* Recent Activity */}
       <div className="bg-card rounded-2xl border border-border overflow-hidden">
         <div className="px-5 py-4 border-b border-border flex items-center justify-between">
@@ -3995,6 +4737,7 @@ const VIEW_TITLES: Partial<Record<View, { title: string; subtitle: string }>> = 
   income: { title: "Fund Income", subtitle: "Track all income sources" },
   expenses: { title: "Expenses", subtitle: "Record and categorize expenses" },
   reports: { title: "Reports & Analytics", subtitle: "Financial performance insights" },
+  welfare: { title: "Welfare & Grants", subtitle: "Emergency relief & assistance portal" },
   announcements: { title: "Announcements", subtitle: "Organization-wide communications" },
   ai: { title: "AI Financial Analysis", subtitle: "Powered by intelligent insights" },
   "member-home": { title: "My Dashboard", subtitle: "Your personal financial overview" },
@@ -4016,8 +4759,8 @@ function AppShell({
   onLogout: () => void;
 }) {
   const getInitialView = (): View => {
-    const adminViews: View[] = ["dashboard", "members", "income", "expenses", "reports", "announcements", "ai"];
-    const memberViews: View[] = ["member-home", "announcements", "ai"];
+    const adminViews: View[] = ["dashboard", "members", "income", "expenses", "reports", "welfare", "announcements", "ai"];
+    const memberViews: View[] = ["member-home", "welfare", "announcements", "ai"];
     const allowed = role === "admin" ? adminViews : memberViews;
 
     // 1. Check URL hash (e.g. #members or #income)
@@ -4057,8 +4800,8 @@ function AppShell({
 
     const onHashChange = () => {
       const hash = window.location.hash.replace("#", "") as View;
-      const adminViews: View[] = ["dashboard", "members", "income", "expenses", "reports", "announcements", "ai"];
-      const memberViews: View[] = ["member-home", "announcements", "ai"];
+      const adminViews: View[] = ["dashboard", "members", "income", "expenses", "reports", "welfare", "announcements", "ai"];
+      const memberViews: View[] = ["member-home", "welfare", "announcements", "ai"];
       const allowed = role === "admin" ? adminViews : memberViews;
       if (hash && allowed.includes(hash)) {
         setViewState(hash);
@@ -4093,9 +4836,10 @@ function AppShell({
       case "income": return <IncomeView token={token} profile={profile} />;
       case "expenses": return <ExpensesView token={token} profile={profile} />;
       case "reports": return <ReportsView token={token} profile={profile} />;
+      case "welfare": return <WelfareView role={role} token={token} userEmail={userEmail} userName={userName} profile={profile} />;
       case "announcements": return <AnnouncementsView role={role} token={token} />;
       case "ai": return <AIView role={role} token={token} profile={profile} />;
-      case "member-home": return <MemberHomeView token={token} userEmail={userEmail} />;
+      case "member-home": return <MemberHomeView token={token} userEmail={userEmail} onNavigateWelfare={() => setView("welfare")} />;
       default: return <DashboardView token={token} profile={profile} />;
     }
   };

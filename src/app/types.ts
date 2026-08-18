@@ -8,6 +8,7 @@ export type View =
   | "expenses"
   | "reports"
   | "announcements"
+  | "welfare"
   | "ai"
   | "member-home";
 
@@ -54,4 +55,41 @@ export interface Announcement {
   date: string;
   priority: "high" | "medium" | "low";
   author: string;
+}
+
+export type WelfareCategory =
+  | "Medical Emergency"
+  | "Education Grant"
+  | "Disaster Relief"
+  | "Family Welfare"
+  | "Community Project"
+  | "Other";
+
+export type WelfareStatus =
+  | "pending"
+  | "under_review"
+  | "approved"
+  | "disbursed"
+  | "rejected";
+
+export type WelfareUrgency = "urgent" | "high" | "medium" | "low";
+
+export interface WelfareRequest {
+  id: string;
+  orgId?: string;
+  memberId: string;
+  memberName: string;
+  memberEmail: string;
+  memberPhone?: string;
+  category: WelfareCategory;
+  amountRequested: number;
+  amountApproved?: number;
+  urgency: WelfareUrgency;
+  reason: string;
+  bankOrWalletDetails: string;
+  date: string;
+  status: WelfareStatus;
+  adminNote?: string;
+  disbursedDate?: string;
+  disbursedTxId?: string;
 }
