@@ -77,9 +77,16 @@ export async function apiFetch<T = unknown>(
   });
 
   if (!res.ok) {
+    if (res.status === 401 && token) {
+      clearAuth();
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("fundflow_auth_expired"));
+      }
+    }
     const payload = await res.json().catch(() => null);
     throw new Error(payload?.error ?? `Request failed (${res.status})`);
   }
 
   return res.json();
 }
+

@@ -4487,13 +4487,15 @@ function AIView({ role, token, profile }: { role: Role; token: string; profile?:
 function MemberHomeView({
   token,
   userEmail,
+  profile,
   onNavigateWelfare,
 }: {
   token: string;
   userEmail: string;
+  profile?: ProfileInfo;
   onNavigateWelfare?: () => void;
 }) {
-  const [me, setMe] = useState<Member | null>(null);
+  const [memberObj, setMemberObj] = useState<Member | null>(null);
   const [myTxs, setMyTxs] = useState<Transaction[]>([]);
   const [announcements, setAnn] = useState<Announcement[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
@@ -4501,34 +4503,83 @@ function MemberHomeView({
   const [payModalOpen, setPayModalOpen] = useState(false);
 
   const loadData = useCallback(() => {
-    apiFetch<Member[]>("/api/members", { token }).then(data => {
-      setMembers(data);
-      const found = data.find(m => m.email?.toLowerCase() === userEmail?.toLowerCase());
-      setMe(found || data[0] || null);
-    }).catch(() => {});
-    apiFetch<Transaction[]>("/api/transactions", { token }).then(data => {
-      setTransactions(data);
-      const incomeTxs = data.filter(t => t.type === "income");
-      const userTxs = incomeTxs.filter(t =>
-        (t.memberEmail && t.memberEmail.toLowerCase() === userEmail.toLowerCase()) ||
-        t.category === "Monthly Contribution" ||
-        t.category === "Donation" ||
-        t.category === "Membership Fee"
-      );
-      setMyTxs(userTxs.slice(0, 10));
-    }).catch(() => {});
-    apiFetch<Announcement[]>("/api/announcements", { token }).then(setAnn).catch(() => {});
+    apiFetch<Member[]>("/api/members", { token })
+      .then(data => {
+        if (Array.isArray(data)) {
+          setMembers(data);
+          const found = data.find(m => m.email?.toLowerCase() === userEmail?.toLowerCase());
+          if (found) {
+            setMemberObj(found);
+          } else if (data.length > 0) {
+            setMemberObj(data[0]);
+          }
+        }
+      })
+      .catch(() => {});
+
+    apiFetch<Transaction[]>("/api/transactions", { token })
+      .then(data => {
+        if (Array.isArray(data)) {
+          setTransactions(data);
+          const incomeTxs = data.filter(t => t.type === "income");
+          const userTxs = incomeTxs.filter(t =>
+            (t.memberEmail && t.memberEmail.toLowerCase() === userEmail?.toLowerCase()) ||
+            t.category === "Monthly Contribution" ||
+            t.category === "Donation" ||
+            t.category === "Membership Fee"
+          );
+          setMyTxs(userTxs.slice(0, 10));
+        }
+      })
+      .catch(() => {});
+
+    apiFetch<Announcement[]>("/api/announcements", { token })
+      .then(data => {
+        if (Array.isArray(data)) setAnn(data);
+      })
+      .catch(() => {});
   }, [token, userEmail]);
 
   useEffect(() => {
     loadData();
   }, [loadData]);
 
-  if (!me) return <div className="p-6 text-center text-muted-foreground">Loading...</div>;
+  // Derive me object with safe fallback so hooks are never called conditionally
+  const me: Member = useMemo(() => {
+    if (memberObj) return memberObj;
+    const found = members.find(m => m.email?.toLowerCase() === userEmail?.toLowerCase());
+    if (found) return found;
+    return {
+      id: "me",
+      name: profile?.name || userEmail?.split("@")[0] || "Member",
+      email: userEmail || "member@fundflow.org",
+      role: "member",
+      initials: (profile?.name || userEmail || "MB")
+        .split(" ")
+        .map((w: string) => w[0])
+        .join("")
+        .slice(0, 2)
+        .toUpperCase() || "MB",
+      joined: "2023-01-01",
+      status: "active",
+      contributions: 0,
+      outstanding: 0,
+      phone: profile?.phone || "",
+    };
+  }, [memberObj, members, userEmail, profile]);
 
-  const totalIncome = transactions.filter(t => t.type === "income").reduce((s, t) => s + t.amount, 0);
-  const totalExpenses = transactions.filter(t => t.type === "expense").reduce((s, t) => s + t.amount, 0);
-  const activeMembers = members.filter(m => m.status === "active").length;
+  const totalIncome = useMemo(
+    () => transactions.filter(t => t.type === "income").reduce((s, t) => s + t.amount, 0),
+    [transactions]
+  );
+  const totalExpenses = useMemo(
+    () => transactions.filter(t => t.type === "expense").reduce((s, t) => s + t.amount, 0),
+    [transactions]
+  );
+  const activeMembers = useMemo(
+    () => members.filter(m => m.status === "active").length,
+    [members]
+  );
 
   const mainAdmin = useMemo(() => {
     return members.find(m => m.isMainAdmin || m.adminType === "main_admin") ||
@@ -4571,11 +4622,14 @@ function MemberHomeView({
     };
 
     // Optimistic UI updates
-    setMe(prev => prev ? ({
-      ...prev,
-      contributions: (prev.contributions || 0) + payment.amount,
-      outstanding: Math.max(0, (prev.outstanding || 0) - payment.amount),
-    }) : null);
+    setMemberObj(prev => {
+      const base = prev || me;
+      return {
+        ...base,
+        contributions: (base.contributions || 0) + payment.amount,
+        outstanding: Math.max(0, (base.outstanding || 0) - payment.amount),
+      };
+    });
 
     setMyTxs(prev => [newTx, ...prev]);
     setTransactions(prev => [newTx, ...prev]);
@@ -5040,7 +5094,7 @@ function AppShell({
       case "welfare": return <WelfareView role={role} token={token} userEmail={userEmail} userName={userName} profile={profile} />;
       case "announcements": return <AnnouncementsView role={role} token={token} />;
       case "ai": return <AIView role={role} token={token} profile={profile} />;
-      case "member-home": return <MemberHomeView token={token} userEmail={userEmail} onNavigateWelfare={() => setView("welfare")} />;
+      case "member-home": return <MemberHomeView token={token} userEmail={userEmail} profile={profile} onNavigateWelfare={() => setView("welfare")} />;
       default: return <DashboardView token={token} profile={profile} />;
     }
   };
@@ -5116,13 +5170,23 @@ export default function App() {
     } catch {}
   };
 
-  // Restore auth from storage on mount
+  // Restore auth from storage on mount & listen for expiration
   useEffect(() => {
     const stored = getStoredAuth();
     if (stored) {
       setAuth(stored);
       setPage("app");
     }
+
+    const handleAuthExpired = () => {
+      clearAuth();
+      setAuth(null);
+      setPage("login");
+      window.location.hash = "";
+    };
+
+    window.addEventListener("fundflow_auth_expired", handleAuthExpired);
+    return () => window.removeEventListener("fundflow_auth_expired", handleAuthExpired);
   }, []);
 
   const handleLogout = () => {
