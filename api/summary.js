@@ -14,16 +14,25 @@ export default async function handler(req, res) {
   try {
     const { db } = await connectToDatabase();
 
-    const membersCount = await db.collection("members").countDocuments({});
-    const activeMembersCount = await db.collection("members").countDocuments({ status: "active" });
+    const orgId = user.orgId || "org_default";
+    const filter =
+      orgId !== "org_default"
+        ? { orgId }
+        : { $or: [{ orgId: "org_default" }, { orgId: { $exists: false } }] };
+
+    const membersCount = await db.collection("members").countDocuments(filter);
+    const activeMembersCount = await db.collection("members").countDocuments({
+      ...filter,
+      status: "active",
+    });
 
     const incomeAgg = await db.collection("transactions").aggregate([
-      { $match: { type: "income" } },
+      { $match: { type: "income", ...filter } },
       { $group: { _id: null, total: { $sum: "$amount" } } },
     ]).toArray();
 
     const expenseAgg = await db.collection("transactions").aggregate([
-      { $match: { type: "expense" } },
+      { $match: { type: "expense", ...filter } },
       { $group: { _id: null, total: { $sum: "$amount" } } },
     ]).toArray();
 
@@ -33,7 +42,7 @@ export default async function handler(req, res) {
 
     const recentTransactions = await db
       .collection("transactions")
-      .find({})
+      .find(filter)
       .sort({ date: -1 })
       .limit(5)
       .toArray();

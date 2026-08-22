@@ -45,6 +45,13 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: "Method not allowed. Use POST to seed the database." });
   }
 
+  // Environment gate: prevent destructive seeding in production/staging unless explicitly allowed
+  if (process.env.ALLOW_SEED !== "true") {
+    return res.status(403).json({
+      error: "Database seeding is disabled. Set ALLOW_SEED=true in environment variables to enable.",
+    });
+  }
+
   try {
     const { db } = await connectToDatabase();
 
