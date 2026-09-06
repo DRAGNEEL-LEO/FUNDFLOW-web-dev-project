@@ -2,7 +2,7 @@
 
 A comprehensive, full-stack web application for managing community, organizational, and cooperative fund operations. FundFlow provides real-time financial tracking, member management, welfare disbursement workflows, AI-powered analytics, and PDF report generation — all within a modern, responsive interface.
 
-> **Live Demo:** _[Add your deployed Vercel URL here]_
+> **Live Demo:** https://fundflow-web-dev-project.vercel.app/
 
 ---
 
@@ -61,49 +61,6 @@ FundFlow follows a **client-server architecture** with a clear separation betwee
 └──────────────────────────────────────────────────────────────┘
 ```
 
-### Use-Case Diagram
-
-> ⚠️ **Note:** The Use-case diagram below is hand-drawn / manually created (not AI-generated).
-
-![Use-Case Diagram](./diagrams/use-case-diagram.png)
-
-<!-- 
-  INSTRUCTION: Create a Use-Case diagram manually using a tool like 
-  draw.io, Lucidchart, StarUML, or Microsoft Visio and save it as:
-  ./diagrams/use-case-diagram.png
-  
-  The diagram should include the following actors and use cases:
-  
-  Actors:
-  - Admin (Main Admin)
-  - Admin (Sub-Admin)
-  - Member
-  - AI Service (External System)
-  
-  Admin Use Cases:
-  - Register Organization
-  - Login / Logout
-  - View Dashboard
-  - Manage Members (Add/Edit/Delete)
-  - Register New User Accounts
-  - Record Income Transactions
-  - Record Expense Transactions
-  - Create Announcements
-  - Review & Approve Welfare Requests
-  - Disburse Welfare Funds
-  - Generate PDF Reports
-  - Request AI Financial Analysis
-  
-  Member Use Cases:
-  - Login / Logout
-  - View Member Home Dashboard
-  - View Personal Contributions
-  - Submit Welfare Requests
-  - View Announcements
-  - Make Payments
-  - Download Payment Receipts
-  - Request AI Financial Analysis
--->
 
 ### Data Flow
 
@@ -162,30 +119,6 @@ FundFlow follows a **client-server architecture** with a clear separation betwee
 
 FundFlow uses **MongoDB Atlas** (NoSQL document database). The database name is `smartfund` and contains the following collections:
 
-### ER Diagram
-
-> ⚠️ **Note:** The ER diagram below is hand-drawn / manually created (not AI-generated).
-
-![ER Diagram](./diagrams/er-diagram.png)
-
-<!-- 
-  INSTRUCTION: Create an ER Diagram manually using a tool like 
-  draw.io, Lucidchart, StarUML, dbdiagram.io, or Microsoft Visio 
-  and save it as:
-  ./diagrams/er-diagram.png
-  
-  Collections and their fields are documented below.
-  Show relationships between collections using crow's foot notation:
-  
-  - organizations (1) ──── (M) users
-  - organizations (1) ──── (M) members
-  - organizations (1) ──── (M) transactions
-  - organizations (1) ──── (M) announcements
-  - organizations (1) ──── (M) welfare_requests
-  - users (1) ──── (1) members (via email)
-  - members (1) ──── (M) transactions (via memberId/memberEmail)
-  - members (1) ──── (M) welfare_requests (via memberId/memberEmail)
--->
 
 ### Collections Schema
 
@@ -295,8 +228,6 @@ FundFlow provides a modern, responsive UI with role-based views:
 
 ### Screenshots
 
-> ⚠️ **Note:** Add actual screenshots of your application below.
-
 | Screen | Description |
 |---|---|
 | ![Landing Page](./screenshots/landing-page.png) | **Landing Page** — Hero section with feature highlights and call-to-action buttons |
@@ -310,10 +241,6 @@ FundFlow provides a modern, responsive UI with role-based views:
 | ![Reports](./screenshots/reports.png) | **Reports** — PDF export for organization summary, income, expenses, and member reports |
 | ![Member Portal](./screenshots/member-portal.png) | **Member Portal** — Personal dashboard, contribution history, payment modal |
 
-<!-- 
-  INSTRUCTION: Take screenshots of each page of your running 
-  application and save them in a ./screenshots/ directory.
--->
 
 ### UI Features
 
@@ -537,11 +464,11 @@ npm run preview
 
 | # | Name | Role | ID |
 |---|---|---|---|
-| 1 | _[Member 1 Name]_ | Team Leader / Full-Stack Developer | _[ID]_ |
-| 2 | _[Member 2 Name]_ | Frontend Developer / UI Designer | _[ID]_ |
-| 3 | _[Member 3 Name]_ | Backend Developer / Database Designer | _[ID]_ |
-| 4 | _[Member 4 Name]_ | QA Tester / Documentation | _[ID]_ |
-| 5 | _[Member 5 Name]_ | System Analyst / Report Designer | _[ID]_ |
+| 1 | ASAD UZ ZAMAN | Project Lead,Backend Developer | 242002712|
+| 2 | Mohammad Fahim | Backend | 242002112 |
+| 3 | Junaid Siddique | Frontend  | 242002212 |
+| 4 | Tareque Aziz | Frontend | 242008412 |
+| 5 | Shihab bin Faruq | Frontend | 242011212 |
 
 ---
 
