@@ -2,7 +2,7 @@
 
 A comprehensive, full-stack web application for managing community, organizational, and cooperative fund operations. FundFlow provides real-time financial tracking, member management, welfare disbursement workflows, AI-powered analytics, and PDF report generation — all within a modern, responsive interface.
 
-> **Live Demo:** https://fundflow-web-dev-project.vercel.app/
+> **Live Demo:** [(https://fundflow-web-dev-project.vercel.app/)](https://fundflow-web-dev-project.vercel.app/)
 
 ---
 
@@ -62,6 +62,7 @@ FundFlow follows a **client-server architecture** with a clear separation betwee
 ```
 
 
+
 ### Data Flow
 
 1. **Authentication Flow:** User submits credentials → Server verifies against MongoDB (bcrypt) → JWT token issued → Client stores token in `sessionStorage` + `localStorage` → Subsequent requests include `Authorization: Bearer <token>` header.
@@ -118,7 +119,6 @@ FundFlow follows a **client-server architecture** with a clear separation betwee
 ## 🗄 Database Design
 
 FundFlow uses **MongoDB Atlas** (NoSQL document database). The database name is `smartfund` and contains the following collections:
-
 
 ### Collections Schema
 
@@ -228,6 +228,8 @@ FundFlow provides a modern, responsive UI with role-based views:
 
 ### Screenshots
 
+
+
 | Screen | Description |
 |---|---|
 | ![Landing Page](./screenshots/landing-page.png) | **Landing Page** — Hero section with feature highlights and call-to-action buttons |
@@ -240,6 +242,7 @@ FundFlow provides a modern, responsive UI with role-based views:
 | ![AI Analysis](./screenshots/ai-analysis.png) | **AI Analysis** — Gemini/OpenAI-powered financial insights, trend analysis, risk assessment |
 | ![Reports](./screenshots/reports.png) | **Reports** — PDF export for organization summary, income, expenses, and member reports |
 | ![Member Portal](./screenshots/member-portal.png) | **Member Portal** — Personal dashboard, contribution history, payment modal |
+
 
 
 ### UI Features

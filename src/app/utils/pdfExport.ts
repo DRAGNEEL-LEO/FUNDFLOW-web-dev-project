@@ -14,6 +14,7 @@ export interface PDFExportOptions {
   includeTransactions?: boolean;
   transactionLimit?: "10" | "25" | "50" | "all";
   includeAnnouncements?: boolean;
+  allTransactions?: Transaction[];
   includeSignatures?: boolean;
   monthlyData?: { month: string; income: number; expenses: number }[];
   expensePie?: { name: string; value: number; color?: string }[];
@@ -84,15 +85,17 @@ export function exportOrganizationPDF(options: PDFExportOptions) {
     members = [],
     transactions = [],
     announcements = [],
+    allTransactions,
   } = options;
 
   let currentY = 14;
 
-  // Calculate totals
-  const totalIncome = transactions
+  // Calculate totals using allTransactions (full set) when available, for accurate KPIs
+  const kpiSource = allTransactions ?? transactions;
+  const totalIncome = kpiSource
     .filter((t) => t.type === "income")
     .reduce((s, t) => s + (Number(t.amount) || 0), 0);
-  const totalExpenses = transactions
+  const totalExpenses = kpiSource
     .filter((t) => t.type === "expense")
     .reduce((s, t) => s + (Number(t.amount) || 0), 0);
   const netBalance = totalIncome - totalExpenses;
@@ -105,6 +108,9 @@ export function exportOrganizationPDF(options: PDFExportOptions) {
     (s, m) => s + (Number(m.outstanding) || 0),
     0
   );
+  // Count records from kpiSource for accurate record counts
+  const incomeRecordCount = kpiSource.filter((t) => t.type === "income").length;
+  const expenseRecordCount = kpiSource.filter((t) => t.type === "expense").length;
 
   const reportRef = `REP-${new Date().getFullYear()}${String(
     new Date().getMonth() + 1
@@ -237,13 +243,13 @@ export function exportOrganizationPDF(options: PDFExportOptions) {
       {
         label: "TOTAL REVENUE (INFLOW)",
         value: fmtCurrency(totalIncome),
-        sub: `${transactions.filter((t) => t.type === "income").length} Income Records`,
+        sub: `${incomeRecordCount} Income Records`,
         accent: colors.income,
       },
       {
         label: "TOTAL EXPENSES (OUTFLOW)",
         value: fmtCurrency(totalExpenses),
-        sub: `${transactions.filter((t) => t.type === "expense").length} Expense Records`,
+        sub: `${expenseRecordCount} Expense Records`,
         accent: colors.expense,
       },
       {
@@ -784,6 +790,7 @@ export function exportIncomeReport(
     includeAnnouncements: false,
     includeSignatures: true,
     transactions: incomeTxs,
+    allTransactions: transactions,
   });
 }
 
@@ -811,6 +818,7 @@ export function exportExpenseReport(
     includeAnnouncements: false,
     includeSignatures: true,
     transactions: expenseTxs,
+    allTransactions: transactions,
     expensePie,
   });
 }
