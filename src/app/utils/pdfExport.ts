@@ -313,13 +313,36 @@ export function exportOrganizationPDF(options: PDFExportOptions) {
   /* ─────────────────────────────────────────────────────────────
      3. MONTHLY PERFORMANCE & EXPENSE CATEGORY BREAKDOWN
   ───────────────────────────────────────────────────────────── */
-  if (includeMonthlyTrend && monthlyData && monthlyData.length > 0) {
+  // Compute monthlyData automatically from kpiSource if not provided or empty
+  let effectiveMonthlyData = monthlyData;
+  if (includeMonthlyTrend && (!effectiveMonthlyData || effectiveMonthlyData.length === 0) && kpiSource.length > 0) {
+    const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const now = new Date();
+    const map: Record<string, { month: string; income: number; expenses: number }> = {};
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const label = monthNames[d.getMonth()];
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+      map[key] = { month: label, income: 0, expenses: 0 };
+    }
+    kpiSource.forEach((t) => {
+      if (!t.date) return;
+      const key = t.date.slice(0, 7);
+      if (map[key]) {
+        if (t.type === "income") map[key].income += Number(t.amount) || 0;
+        else if (t.type === "expense") map[key].expenses += Number(t.amount) || 0;
+      }
+    });
+    effectiveMonthlyData = Object.values(map);
+  }
+
+  if (includeMonthlyTrend && effectiveMonthlyData && effectiveMonthlyData.length > 0) {
     drawSectionHeader(
       "Monthly Inflow vs. Outflow Trend",
       "Historical monthly financial performance and net cash margins"
     );
 
-    const monthlyRows = monthlyData.map((m) => {
+    const monthlyRows = effectiveMonthlyData.map((m) => {
       const inc = m.income || 0;
       const exp = m.expenses || 0;
       const net = inc - exp;
@@ -334,8 +357,8 @@ export function exportOrganizationPDF(options: PDFExportOptions) {
     });
 
     // Total row
-    const sumInc = monthlyData.reduce((s, m) => s + (m.income || 0), 0);
-    const sumExp = monthlyData.reduce((s, m) => s + (m.expenses || 0), 0);
+    const sumInc = effectiveMonthlyData.reduce((s, m) => s + (m.income || 0), 0);
+    const sumExp = effectiveMonthlyData.reduce((s, m) => s + (m.expenses || 0), 0);
     const sumNet = sumInc - sumExp;
     const avgMargin = sumInc > 0 ? ((sumNet / sumInc) * 100).toFixed(1) + "%" : "0%";
 
@@ -387,14 +410,32 @@ export function exportOrganizationPDF(options: PDFExportOptions) {
   /* ─────────────────────────────────────────────────────────────
      4. EXPENSE CATEGORY DISTRIBUTION
   ───────────────────────────────────────────────────────────── */
-  if (includeExpenseCategories && expensePie && expensePie.length > 0) {
+  // Compute expensePie automatically from kpiSource if not provided or empty
+  let effectiveExpensePie = expensePie;
+  if (includeExpenseCategories && (!effectiveExpensePie || effectiveExpensePie.length === 0) && kpiSource.length > 0) {
+    const expenses = kpiSource.filter((t) => t.type === "expense");
+    if (expenses.length > 0) {
+      const catMap: Record<string, number> = {};
+      expenses.forEach((t) => {
+        catMap[t.category] = (catMap[t.category] || 0) + (Number(t.amount) || 0);
+      });
+      const colorsList = ["#0B4832", "#14C768", "#F59E0B", "#6366F1", "#EC4899", "#3B82F6", "#8B5CF6"];
+      effectiveExpensePie = Object.entries(catMap).map(([name, value], idx) => ({
+        name,
+        value,
+        color: colorsList[idx % colorsList.length],
+      }));
+    }
+  }
+
+  if (includeExpenseCategories && effectiveExpensePie && effectiveExpensePie.length > 0) {
     drawSectionHeader(
       "Expense Distribution by Category",
       "Functional allocation of organizational disbursements"
     );
 
-    const totalExpPie = expensePie.reduce((s, e) => s + (e.value || 0), 0);
-    const catRows = expensePie.map((e) => {
+    const totalExpPie = effectiveExpensePie.reduce((s, e) => s + (e.value || 0), 0);
+    const catRows = effectiveExpensePie.map((e) => {
       const share = totalExpPie > 0 ? ((e.value / totalExpPie) * 100).toFixed(1) + "%" : "0%";
       return [e.name, fmtCurrency(e.value), share];
     });
@@ -773,9 +814,16 @@ export function exportOrganizationPDF(options: PDFExportOptions) {
 export function exportIncomeReport(
   transactions: Transaction[],
   organizationName: string = "FundFlow Organization",
-  generatedBy: string = "Administrator"
+  generatedBy: string = "Administrator",
+  allTransactions?: Transaction[],
+  members?: Member[],
+  monthlyData?: { month: string; income: number; expenses: number }[]
 ) {
-  const incomeTxs = transactions.filter((t) => t.type === "income");
+  const fullTransactions = allTransactions ?? transactions;
+  const incomeTxs = transactions.every((t) => t.type === "income")
+    ? transactions
+    : transactions.filter((t) => t.type === "income");
+
   exportOrganizationPDF({
     organizationName,
     reportTitle: "Fund Income & Receipts Statement",
@@ -790,7 +838,9 @@ export function exportIncomeReport(
     includeAnnouncements: false,
     includeSignatures: true,
     transactions: incomeTxs,
-    allTransactions: transactions,
+    allTransactions: fullTransactions,
+    members: members ?? [],
+    monthlyData,
   });
 }
 
@@ -801,9 +851,15 @@ export function exportExpenseReport(
   transactions: Transaction[],
   organizationName: string = "FundFlow Organization",
   expensePie?: { name: string; value: number; color?: string }[],
-  generatedBy: string = "Administrator"
+  generatedBy: string = "Administrator",
+  allTransactions?: Transaction[],
+  members?: Member[]
 ) {
-  const expenseTxs = transactions.filter((t) => t.type === "expense");
+  const fullTransactions = allTransactions ?? transactions;
+  const expenseTxs = transactions.every((t) => t.type === "expense")
+    ? transactions
+    : transactions.filter((t) => t.type === "expense");
+
   exportOrganizationPDF({
     organizationName,
     reportTitle: "Fund Disbursements & Expense Statement",
@@ -818,8 +874,9 @@ export function exportExpenseReport(
     includeAnnouncements: false,
     includeSignatures: true,
     transactions: expenseTxs,
-    allTransactions: transactions,
+    allTransactions: fullTransactions,
     expensePie,
+    members: members ?? [],
   });
 }
 
@@ -829,7 +886,8 @@ export function exportExpenseReport(
 export function exportMembersReport(
   members: Member[],
   organizationName: string = "FundFlow Organization",
-  generatedBy: string = "Administrator"
+  generatedBy: string = "Administrator",
+  transactions?: Transaction[]
 ) {
   exportOrganizationPDF({
     organizationName,
@@ -844,6 +902,8 @@ export function exportMembersReport(
     includeAnnouncements: false,
     includeSignatures: true,
     members,
+    transactions: transactions ?? [],
+    allTransactions: transactions,
   });
 }
 

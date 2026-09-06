@@ -1764,7 +1764,7 @@ function DashboardView({ token, profile }: { token: string; profile?: ProfileInf
           </div>
           <div className="flex items-center gap-2">
             <button
-              onClick={() => exportIncomeReport(transactions, profile?.organization, profile?.name)}
+              onClick={() => exportIncomeReport(transactions, profile?.organization, profile?.name, transactions, members, monthlyData)}
               className="flex items-center gap-1 text-xs text-emerald-700 hover:text-emerald-800 bg-emerald-50 px-2.5 py-1.5 rounded-lg border border-emerald-200 transition-colors cursor-pointer"
               title="Export all income transactions to PDF"
             >
@@ -1772,7 +1772,7 @@ function DashboardView({ token, profile }: { token: string; profile?: ProfileInf
               <span>Income PDF</span>
             </button>
             <button
-              onClick={() => exportExpenseReport(transactions, profile?.organization, expensePie, profile?.name)}
+              onClick={() => exportExpenseReport(transactions, profile?.organization, expensePie, profile?.name, transactions, members)}
               className="flex items-center gap-1 text-xs text-red-700 hover:text-red-800 bg-red-50 px-2.5 py-1.5 rounded-lg border border-red-200 transition-colors cursor-pointer"
               title="Export all expense transactions to PDF"
             >
@@ -1857,9 +1857,11 @@ function MembersView({ token, profile }: { token: string; profile?: ProfileInfo 
   });
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
+  const [allTxs, setAllTxs] = useState<Transaction[]>([]);
 
   const loadMembers = useCallback(() => {
     apiFetch<Member[]>("/api/members", { token }).then(setMembers).catch(() => {});
+    apiFetch<Transaction[]>("/api/transactions", { token }).then(setAllTxs).catch(() => {});
   }, [token]);
 
   useEffect(() => { loadMembers(); }, [loadMembers]);
@@ -2018,7 +2020,7 @@ function MembersView({ token, profile }: { token: string; profile?: ProfileInfo 
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <button
-            onClick={() => exportMembersReport(members, profile?.organization, profile?.name)}
+            onClick={() => exportMembersReport(members, profile?.organization, profile?.name, allTxs)}
             className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-card text-foreground hover:bg-muted text-xs font-medium border border-border transition-colors cursor-pointer"
             title="Download member roster PDF"
           >
@@ -2240,19 +2242,22 @@ function MembersView({ token, profile }: { token: string; profile?: ProfileInfo 
 const INCOME_CATS = ["Monthly Contribution", "Donation", "Membership Fee", "Sponsorship", "Other"];
 
 function IncomeView({ token, profile }: { token: string; profile?: ProfileInfo }) {
-  const [txs, setTxs] = useState<Transaction[]>([]);
+  const [allTxs, setAllTxs] = useState<Transaction[]>([]);
+  const [members, setMembers] = useState<Member[]>([]);
   const [modal, setModal] = useState(false);
   const [payModalOpen, setPayModalOpen] = useState(false);
   const [form, setForm] = useState({ description: "", amount: "", category: "Monthly Contribution", date: "" });
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
   const loadTxs = useCallback(() => {
-    apiFetch<Transaction[]>("/api/transactions", { token }).then(data => setTxs(data.filter(t => t.type === "income"))).catch(() => {});
+    apiFetch<Transaction[]>("/api/transactions", { token }).then(data => setAllTxs(data)).catch(() => {});
+    apiFetch<Member[]>("/api/members", { token }).then(setMembers).catch(() => {});
   }, [token]);
 
   useEffect(() => { loadTxs(); }, [loadTxs]);
 
-  const total = txs.reduce((s, t) => s + t.amount, 0);
+  const txs = useMemo(() => allTxs.filter(t => t.type === "income"), [allTxs]);
+  const total = useMemo(() => txs.reduce((s, t) => s + t.amount, 0), [txs]);
 
   const handleAdd = async () => {
     const val = validateTransactionPayload({
@@ -2333,7 +2338,7 @@ function IncomeView({ token, profile }: { token: string; profile?: ProfileInfo }
         <div className="px-5 py-4 border-b border-border flex items-center justify-between">
           <h3 className="font-semibold" style={{ fontFamily: "Fraunces, serif" }}>Income Records</h3>
           <button
-            onClick={() => exportIncomeReport(txs, profile?.organization, profile?.name)}
+            onClick={() => exportIncomeReport(txs, profile?.organization, profile?.name, allTxs, members)}
             className="flex items-center gap-1.5 text-xs text-emerald-700 hover:text-emerald-800 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-lg transition-colors font-medium cursor-pointer"
           >
             <Download size={13} /> Export PDF
@@ -2425,18 +2430,21 @@ function IncomeView({ token, profile }: { token: string; profile?: ProfileInfo }
 const EXPENSE_CATS = ["Operations", "Events", "Welfare", "Education", "Admin", "Other"];
 
 function ExpensesView({ token, profile }: { token: string; profile?: ProfileInfo }) {
-  const [txs, setTxs] = useState<Transaction[]>([]);
+  const [allTxs, setAllTxs] = useState<Transaction[]>([]);
+  const [members, setMembers] = useState<Member[]>([]);
   const [modal, setModal] = useState(false);
   const [form, setForm] = useState({ description: "", amount: "", category: "Operations", date: "" });
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
   const loadTxs = useCallback(() => {
-    apiFetch<Transaction[]>("/api/transactions", { token }).then(data => setTxs(data.filter(t => t.type === "expense"))).catch(() => {});
+    apiFetch<Transaction[]>("/api/transactions", { token }).then(data => setAllTxs(data)).catch(() => {});
+    apiFetch<Member[]>("/api/members", { token }).then(setMembers).catch(() => {});
   }, [token]);
 
   useEffect(() => { loadTxs(); }, [loadTxs]);
 
-  const total = txs.reduce((s, t) => s + t.amount, 0);
+  const txs = useMemo(() => allTxs.filter(t => t.type === "expense"), [allTxs]);
+  const total = useMemo(() => txs.reduce((s, t) => s + t.amount, 0), [txs]);
 
   const handleAdd = async () => {
     const val = validateTransactionPayload({
@@ -2499,7 +2507,7 @@ function ExpensesView({ token, profile }: { token: string; profile?: ProfileInfo
         <div className="px-5 py-4 border-b border-border flex items-center justify-between">
           <h3 className="font-semibold" style={{ fontFamily: "Fraunces, serif" }}>Expense Records</h3>
           <button
-            onClick={() => exportExpenseReport(txs, profile?.organization, dynamicExpensePie, profile?.name)}
+            onClick={() => exportExpenseReport(txs, profile?.organization, dynamicExpensePie, profile?.name, allTxs, members)}
             className="flex items-center gap-1.5 text-xs text-red-700 hover:text-red-800 bg-red-50 border border-red-200 px-3 py-1.5 rounded-lg transition-colors font-medium cursor-pointer"
           >
             <Download size={13} /> Export PDF
@@ -2662,6 +2670,7 @@ function ReportsView({ token, profile }: { token: string; profile?: ProfileInfo 
             expensePie,
             members,
             transactions,
+            allTransactions: transactions,
           })}
           className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-medium shadow-xs transition-colors cursor-pointer w-fit"
         >
